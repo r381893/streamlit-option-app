@@ -1,0 +1,6 @@
+streamlit
+pandas
+scipy
+# 其他您可能用到的套件，例如：
+# numpy
+# matplotlib
