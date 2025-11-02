@@ -45,11 +45,19 @@ def future_payoff(S_range, position, entry_price, qty, multiplier):
     else:
         return (entry_price-S_range)*multiplier*qty
 
+# --- 初始化 session_state ---
+for strategy in ["策略 A", "策略 B"]:
+    if strategy not in st.session_state:
+        st.session_state[strategy] = []
+
+if "S0" not in st.session_state:
+    st.session_state.S0 = 16000.0
+
 # --- JSON 儲存 ---
 def save_positions():
     safe_A = []
     safe_B = []
-    for pos in st.session_state.strategy_A:
+    for pos in st.session_state["策略 A"]:
         safe_A.append({
             "asset_type": str(pos.get("asset_type")),
             "option_type": None if pos.get("option_type") is None else str(pos.get("option_type")),
@@ -59,7 +67,7 @@ def save_positions():
             "qty": int(pos.get("qty")),
             "multiplier": float(pos.get("multiplier"))
         })
-    for pos in st.session_state.strategy_B:
+    for pos in st.session_state["策略 B"]:
         safe_B.append({
             "asset_type": str(pos.get("asset_type")),
             "option_type": None if pos.get("option_type") is None else str(pos.get("option_type")),
@@ -81,15 +89,16 @@ def save_positions():
 def load_positions():
     if os.path.exists("positions.json"):
         with open("positions.json","r",encoding="utf-8") as f:
-            data = json.load(f)
-            st.session_state.strategy_A = data.get("strategy_A",[])
-            st.session_state.strategy_B = data.get("strategy_B",[])
-            st.session_state.S0 = data.get("S0",16000.0)
-
-# --- 初始化 session_state ---
-if "strategy_A" not in st.session_state: st.session_state.strategy_A=[]
-if "strategy_B" not in st.session_state: st.session_state.strategy_B=[]
-if "S0" not in st.session_state: st.session_state.S0=16000.0
+            try:
+                data = json.load(f)
+                st.session_state["策略 A"] = data.get("strategy_A", [])
+                st.session_state["策略 B"] = data.get("strategy_B", [])
+                st.session_state.S0 = data.get("S0", 16000.0)
+            except:
+                st.warning("positions.json 格式錯誤，已初始化為空列表")
+                st.session_state["策略 A"] = []
+                st.session_state["策略 B"] = []
+                st.session_state.S0 = 16000.0
 
 load_positions()
 
@@ -98,21 +107,15 @@ st.title("📊 多倉位選擇權 / 微台策略比較工具")
 
 # --- 側欄參數 ---
 st.sidebar.header("⚙ 全域參數設定")
-
-# 到期日
 today = datetime.date.today()
 expiry_date = st.sidebar.date_input("到期日", value=today + datetime.timedelta(days=30))
 days_to_expiry = (expiry_date-today).days
 T = max(days_to_expiry/365.0,0.0)
 st.sidebar.write(f"🕒 距離到期：{days_to_expiry} 天（約 {T:.3f} 年）")
-
-# 標的現價
 st.session_state.S0 = st.sidebar.number_input("標的現價", value=float(st.session_state.S0), step=10.0)
 if st.sidebar.button("💾 儲存目前標的價"):
     save_positions()
     st.sidebar.success("✅ 已儲存現價，下次自動載入！")
-
-# 其他參數
 r = st.sidebar.number_input("無風險利率", value=0.01, format="%.4f")
 sigma = st.sidebar.number_input("波動率 (Volatility)", value=0.2, format="%.4f")
 range_points = st.sidebar.number_input("區間範圍 (點)", value=1500, step=100)
@@ -145,35 +148,40 @@ def add_position(strategy_name):
                 "qty": int(qty),
                 "multiplier": float(multiplier)
             }
-            if strategy_name=="策略 A": st.session_state.strategy_A.append(position_data)
-            else: st.session_state.strategy_B.append(position_data)
-            save_positions(); st.rerun()  # 修正為新的指令
+            st.session_state[strategy_name].append(position_data)
+            save_positions()
 
-# --- 刪除倉位 ---
-def delete_position(strategy_name):
-    if strategy_name=="策略 A":
-        for i,pos in enumerate(list(st.session_state.strategy_A)):
-            if st.button(f"刪除 A 倉位 {i+1}", key=f"del_A_{i}"):
-                st.session_state.strategy_A.pop(i); save_positions(); st.experimental_rerun()
-    else:
-        for i,pos in enumerate(list(st.session_state.strategy_B)):
-            if st.button(f"刪除 B 倉位 {i+1}", key=f"del_B_{i}"):
-                st.session_state.strategy_B.pop(i); save_positions(); st.experimental_rerun()
+# --- 刪除單筆與批次刪除函式 ---
+def delete_position(strategy_name, index=None, clear_all=False):
+    if strategy_name not in st.session_state:
+        st.session_state[strategy_name] = []
+    strategy_list = st.session_state[strategy_name]
+    if clear_all:
+        strategy_list.clear()
+    elif index is not None and 0 <= index < len(strategy_list):
+        strategy_list.pop(index)
+    save_positions()
 
 # --- 顯示策略區塊 ---
 col1,col2 = st.columns(2)
-with col1:
-    st.header("策略 A"); add_position("策略 A")
-    st.dataframe(pd.DataFrame(st.session_state.strategy_A), use_container_width=True)
-    delete_position("策略 A")
-with col2:
-    st.header("策略 B"); add_position("策略 B")
-    st.dataframe(pd.DataFrame(st.session_state.strategy_B), use_container_width=True)
-    delete_position("策略 B")
+for col,strategy_name in zip([col1,col2],["策略 A","策略 B"]):
+    with col:
+        st.header(strategy_name)
+        add_position(strategy_name)
+        df = pd.DataFrame(st.session_state[strategy_name])
+        st.dataframe(df,use_container_width=True)
+        # 單筆刪除按鈕
+        for i in range(len(st.session_state[strategy_name])):
+            if st.button(f"刪除 {strategy_name} 倉位 {i+1}", key=f"del_{strategy_name}_{i}"):
+                delete_position(strategy_name, index=i)
+        # 批次清空按鈕
+        if st.button(f"清空 {strategy_name} 所有倉位", key=f"clear_{strategy_name}"):
+            delete_position(strategy_name, clear_all=True)
 
-# --- 計算策略總損益 ---
+# --- 計算策略損益 ---
 S0 = float(st.session_state.S0)
 S_range = np.arange(S0-range_points, S0+range_points+step, step)
+
 def calc_strategy(strategy_positions, S_range):
     total = np.zeros_like(S_range, dtype=float)
     for pos in strategy_positions:
@@ -183,8 +191,9 @@ def calc_strategy(strategy_positions, S_range):
         else:
             total += future_payoff(S_range,pos["position"],pos["entry_price"],pos["qty"],pos["multiplier"])
     return total
-payoff_A = calc_strategy(st.session_state.strategy_A, S_range)
-payoff_B = calc_strategy(st.session_state.strategy_B, S_range)
+
+payoff_A = calc_strategy(st.session_state["策略 A"], S_range)
+payoff_B = calc_strategy(st.session_state["策略 B"], S_range)
 
 # --- 即時計算現價損益 ---
 current_A = np.interp(S0, S_range, payoff_A)
@@ -199,7 +208,6 @@ st.markdown(f"""
 fig = go.Figure()
 fig.add_trace(go.Scatter(x=S_range, y=payoff_A, mode="lines", name="策略 A", line=dict(color="deepskyblue", width=3)))
 fig.add_trace(go.Scatter(x=S_range, y=payoff_B, mode="lines", name="策略 B", line=dict(color="violet", width=3)))
-# 標示現價損益
 fig.add_trace(go.Scatter(x=[S0], y=[current_A], mode="markers+text", name="A 現價損益",
                          text=[f"A：{current_A:.0f}"], textposition="top left", marker=dict(color="deepskyblue", size=10)))
 fig.add_trace(go.Scatter(x=[S0], y=[current_B], mode="markers+text", name="B 現價損益",
@@ -219,4 +227,3 @@ st.markdown(styled_table.to_html(), unsafe_allow_html=True)
 # --- 匯出 CSV ---
 csv = table_data.to_csv(index=False).encode("utf-8-sig")
 st.download_button("⬇ 下載損益表 (CSV)", data=csv, file_name="損益比較.csv", mime="text/csv")
-
