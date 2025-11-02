@@ -147,7 +147,7 @@ def add_position(strategy_name):
             }
             if strategy_name=="策略 A": st.session_state.strategy_A.append(position_data)
             else: st.session_state.strategy_B.append(position_data)
-            save_positions(); st.experimental_rerun()
+            save_positions(); st.rerun()  # 修正為新的指令
 
 # --- 刪除倉位 ---
 def delete_position(strategy_name):
@@ -219,3 +219,4 @@ st.markdown(styled_table.to_html(), unsafe_allow_html=True)
 # --- 匯出 CSV ---
 csv = table_data.to_csv(index=False).encode("utf-8-sig")
 st.download_button("⬇ 下載損益表 (CSV)", data=csv, file_name="損益比較.csv", mime="text/csv")
+
