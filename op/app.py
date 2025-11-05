@@ -283,59 +283,75 @@ with st.container():
 st.markdown("<div class='card'>", unsafe_allow_html=True)
 st.markdown('<div class="section-title">➕ 新增倉位 (建立持倉)</div>', unsafe_allow_html=True)
 
-with st.form(key="add_position_form"):
-    # 確保履約價的預設值計算在表單內，並使用 key
-    strike_default = round(st.session_state.center_price / 100) * 100 
-    
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        new_strategy = st.selectbox("策略", ["策略 A", "策略 B"], key="new_strategy")
-        new_product = st.selectbox("商品", ["微台", "選擇權"], key="new_product")
-    with c2:
-        new_direction = st.radio("方向", ["買進", "賣出"], horizontal=True, key="new_direction")
-        new_lots = st.number_input("口數", min_value=1, step=1, value=1, key="new_lots")
-    with c3:
-        new_entry = st.number_input("成交價（權利金或口數成交價）", min_value=0.0, step=0.5, value=0.0, key="new_entry")
-    
-    # --- 修正重點區塊：控制選擇權相關輸入的顯示 ---
-    
-    # 預設值，即使沒有顯示也要在 session_state 中有值，避免 Key Error
-    new_opt_type = ""
-    new_strike = "" 
+# 1. 策略和商品必須在 form 之外，才能讓商品選擇即時更新
+col_strat, col_prod = st.columns(2)
+with col_strat:
+    # 策略可以放在外面，方便使用 session state
+    new_strategy = st.selectbox("策略", ["策略 A", "策略 B"], key="new_strategy_outside") 
+with col_prod:
+    # 💥 商品選擇必須移出 form 才能即時更新！
+    new_product = st.selectbox("商品", ["微台", "選擇權"], key="new_product_outside") 
 
-    if st.session_state.new_product == "選擇權":
-        # 只有在選擇「選擇權」時，才渲染這些組件
-        opt_col1, opt_col2 = st.columns(2)
-        with opt_col1:
-            # 必須使用不同的 key，確保不與 new_opt_type 衝突，這裡使用 new_opt_type_select
-            st.session_state.new_opt_type_select = st.selectbox("選擇權類型", ["買權", "賣權"], key="new_opt_type_select")
-            new_opt_type = st.session_state.new_opt_type_select # 更新要儲存的值
-        with opt_col2:
-            # 必須使用不同的 key，這裡使用 new_strike_input
-            st.session_state.new_strike_input = st.number_input("履約價", min_value=0.0, step=0.5, value=float(strike_default), key="new_strike_input") 
-            new_strike = st.session_state.new_strike_input # 更新要儲存的值
+# 2. 選擇權類型和履約價的條件式渲染 (依然在 form 之外)
+strike_default = round(st.session_state.center_price / 100) * 100 
+new_opt_type = ""
+new_strike = "" 
+
+if st.session_state.new_product_outside == "選擇權":
+    st.markdown("---") # 分隔線讓選擇權欄位更清晰
+    st.markdown("##### 選擇權細節")
+    opt_col1, opt_col2 = st.columns(2)
+    with opt_col1:
+        # 💥 必須移出 form 才能即時更新！
+        new_opt_type = st.selectbox("選擇權類型", ["買權", "賣權"], key="new_opt_type_outside")
+    with opt_col2:
+        # 💥 必須移出 form 才能即時更新！
+        new_strike = st.number_input("履約價", min_value=0.0, step=0.5, value=float(strike_default), key="new_strike_outside") 
+    st.markdown("---") 
+
+# 3. 將其餘輸入放入 st.form，並使用 form key 確保數據在提交時被收集
+with st.form(key="add_position_form"):
     
-    # 修正重點：新增提交按鈕
+    # 將方向、口數、成交價放入 form 內
+    c1, c2 = st.columns(2)
+    with c1:
+        # 顯示 form 外已選的值
+        st.markdown(f"**策略：** `{st.session_state.new_strategy_outside}`")
+        st.markdown(f"**商品：** `{st.session_state.new_product_outside}`")
+        if st.session_state.new_product_outside == "選擇權":
+             st.markdown(f"**類型：** `{st.session_state.new_opt_type_outside}` / **履約價：** `{st.session_state.new_strike_outside:,.1f}`")
+
+        new_direction = st.radio("方向", ["買進", "賣出"], horizontal=True, key="new_direction_inside")
+        
+    with c2:
+        new_lots = st.number_input("口數", min_value=1, step=1, value=1, key="new_lots_inside")
+        new_entry = st.number_input("成交價（權利金或口數成交價）", min_value=0.0, step=0.5, value=0.0, key="new_entry_inside")
+        
+    # 提交按鈕
     submitted = st.form_submit_button("✅ 新增倉位 (加入持倉)", use_container_width=True)
     
     if submitted:
-        # 修正：確保 new_strike 在微台時為空字串，在選擇權時從 session_state.new_strike_input 取得 float 值
-        if st.session_state.new_product == "選擇權":
-             # 必須在提交後檢查 session_state 中對應的 key 是否存在
-             strike_value = float(st.session_state.get("new_strike_input", "")) if "new_strike_input" in st.session_state else ""
-             new_opt_type = st.session_state.get("new_opt_type_select", "")
+        
+        # 從 form 外的 session_state 獲取條件式的值
+        product_value = st.session_state.new_product_outside
+        strategy_value = st.session_state.new_strategy_outside
+        
+        if product_value == "選擇權":
+             # 從 form 外的 key 獲取值
+             strike_value = float(st.session_state.new_strike_outside)
+             opt_type_value = st.session_state.new_opt_type_outside
         else:
              strike_value = ""
-             new_opt_type = ""
+             opt_type_value = ""
         
         rec = {
-            "策略": st.session_state.new_strategy,
-            "商品": st.session_state.new_product,
-            "選擇權類型": new_opt_type,
+            "策略": strategy_value,
+            "商品": product_value,
+            "選擇權類型": opt_type_value,
             "履約價": strike_value,
-            "方向": st.session_state.new_direction,
-            "口數": int(st.session_state.new_lots),
-            "成交價": float(st.session_state.new_entry)
+            "方向": st.session_state.new_direction_inside,
+            "口數": int(st.session_state.new_lots_inside),
+            "成交價": float(st.session_state.new_entry_inside)
         }
         st.session_state.positions = pd.concat([st.session_state.positions, pd.DataFrame([rec])], ignore_index=True)
         st.success("已新增倉位，請在下方持倉明細確認。")
