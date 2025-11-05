@@ -131,8 +131,8 @@ def black_scholes_model(S, K, T, r, sigma, option_type):
     sigma: 波動率 (年化)
     option_type: 'C' (Call 買權) 或 'P' (Put 賣權)
     """
-    if T <= 0:
-        # 到期日，時間價值為 0
+    # 確保 T 不為零或負數，否則直接返回內含價值
+    if T <= 0 or sigma == 0:
         if option_type == 'C':
             return max(0, S - K)
         else: # P
@@ -640,14 +640,14 @@ if not positions_df.empty:
     
     
     # ---
-    ## ⏳ 選擇權時間價值分析 (新功能)
+    ## ⏳ 選擇權時間價值分析 (新功能 - 逐日遞減)
     # ---
 
     st.markdown("<div class='card'>", unsafe_allow_html=True)
-    st.markdown('<div class="section-title">⏳ 選擇權時間價值分析</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">⏳ 選擇權時間價值分析 (逐日遞減)</div>', unsafe_allow_html=True)
     
     # 篩選出所有選擇權倉位
-    options_df = positions_df[positions_df["商品"] == "選擇權"].copy().reset_index(drop=True)
+    options_df = positions_df[positions_df["商品"] == "選擇權"].copy().reset_index()
     
     if options_df.empty:
         st.info("目前無選擇權倉位，此功能僅適用於選擇權。")
@@ -663,6 +663,7 @@ if not positions_df.empty:
             max_value=100.0, 
             step=1.0,
             format="%.1f",
+            key="iv_input",
             help="請輸入您對市場預期的波動率百分比 (例如 15 表示 15%)"
         ) / 100.0 # 轉換為小數
         
@@ -671,110 +672,118 @@ if not positions_df.empty:
             "預計結算日期 (到期日)",
             value=date.today() + timedelta(days=5),
             min_value=date.today() + timedelta(days=1),
+            key="settle_date_input",
             help="選擇您想模擬的結算日期，必須晚於今天"
         )
         
-        # 3. 剩餘天數計算
-        days_to_expiry = (settle_date - date.today()).days
-        time_to_expiry = days_to_expiry / 365.0
+        # 3. 模擬天數範圍
+        initial_days = (settle_date - date.today()).days
+        days_to_simulate = st.number_input(
+            "模擬天數 (N 天內，從結算日前 N 天開始)",
+            value=min(5, initial_days),
+            min_value=1,
+            max_value=initial_days,
+            step=1
+        )
+        
+        # 4. 剩餘天數計算
+        days_to_expiry_start = initial_days
         
         st.sidebar.markdown(f"""
         <div style='font-size:14px; margin-top: 15px;'>
-            <p><b>剩餘天數 (T):</b> <span style="color:#cf1322; font-weight:700;">{days_to_expiry} 天</span></p>
-            <p><b>年化時間 (T):</b> <span style="color:#cf1322; font-weight:700;">{time_to_expiry:.4f} 年</span></p>
-            <p><b>假設 IV (σ):</b> <span style="color:#0b5cff; font-weight:700;">{volatility*100:.1f} %</span></p>
-            <p><b>無風險利率 (r):</b> <span style="color:#2aa84f; font-weight:700;">{RISK_FREE_RATE*100:.1f} %</span></p>
+            <p><b>當前剩餘:</b> <span style="color:#cf1322; font-weight:700;">{days_to_expiry_start} 天</span></p>
+            <p><b>模擬 IV (σ):</b> <span style="color:#0b5cff; font-weight:700;">{volatility*100:.1f} %</span></p>
         </div>
         """, unsafe_allow_html=True)
 
-        if days_to_expiry <= 0:
+        if initial_days <= 0:
             st.warning("⚠️ 預計結算日期必須晚於今天。", icon="⚠️")
         else:
             
-            results = []
-            total_theta_value = 0.0
-
-            for index, row in options_df.iterrows():
-                
-                # 獲取 Black-Scholes 參數
-                K = float(row["履約價"])
-                opt_code = 'C' if row["選擇權類型"] == '買權' else 'P'
-                is_buy = row["方向"] == "買進"
-                
-                # 1. 計算理論價
-                theo_price = black_scholes_model(center, K, time_to_expiry, RISK_FREE_RATE, volatility, opt_code)
-                
-                # 2. 計算內含價值
-                if opt_code == 'C':
-                    intrinsic_value = max(0.0, center - K)
-                else:
-                    intrinsic_value = max(0.0, K - center)
-                    
-                # 3. 計算時間價值
-                time_value = max(0.0, theo_price - intrinsic_value)
-                
-                # 4. 計算時間價值流失帶來的損益 (Theta)
-                # 權利金損失 = (原始成交價 - 理論價) * 口數 * 乘數
-                # 買方：權利金變低是虧損；賣方：權利金變低是利潤
-                
-                original_value = row["成交價"] * row["口數"] * MULTIPLIER_OPTION
-                current_theo_value = theo_price * row["口數"] * MULTIPLIER_OPTION
-
-                # 選擇權存續價值變化 (點數)
-                value_change_pts = theo_price - row["成交價"] 
-                
-                # 總損益 = (期末價值 - 原始價值)
-                # 對買方來說: (新價 - 舊價) > 0 是賺 / < 0 是賠
-                # 對賣方來說: (舊價 - 新價) > 0 是賺 / < 0 是賠
-                if is_buy:
-                    profit_loss = (theo_price - row["成交價"]) * row["口數"] * MULTIPLIER_OPTION
-                else: # 賣方
-                    profit_loss = (row["成交價"] - theo_price) * row["口數"] * MULTIPLIER_OPTION
-
-                
-                results.append({
-                    "策略": row["策略"],
-                    "履約價": K,
-                    "類型": f'{row["選擇權類型"]} ({row["方向"]})',
-                    "口數": row["口數"],
-                    "成交價(點)": row["成交價"],
-                    "理論價(點)": theo_price,
-                    "內含價值(點)": intrinsic_value,
-                    "時間價值(點)": time_value,
-                    "價值變化(點)": value_change_pts,
-                    "剩餘價值損益(元)": profit_loss
-                })
-                total_theta_value += profit_loss
-
-            results_df = pd.DataFrame(results)
-
-            st.markdown(f"**模擬結算價: {center:,.1f}** (與損益曲線中心價相同)")
+            # --- 開始逐日疊代計算 ---
+            daily_results = []
             
-            # 總損益高亮
-            total_style = "color: #0b5cff; font-size: 20px; font-weight: 700;" if total_theta_value > 0 else "color: #cf1322; font-size: 20px; font-weight: 700;"
-            st.markdown(f"#### 預期總損益 (含時間價值流失)：<span style='{total_style}'>{total_theta_value:,.0f} 元</span>", unsafe_allow_html=True)
-            st.caption(f"此損益是假設 **{settle_date}** 結算時，指數停留在 **{center:,.1f}** 且波動率為 **{volatility*100:.1f}%** 時，相比原始成交價計算出的價值變化。")
+            # 模擬從結算日倒數 N 天開始
+            simulation_start_date = settle_date - timedelta(days=days_to_simulate - 1)
+            
+            # 確保模擬開始日不早於今天
+            if simulation_start_date < date.today():
+                 simulation_start_date = date.today()
+            
+            current_date = simulation_start_date
+            
+            # 建立要模擬的日期範圍
+            sim_dates = []
+            temp_date = simulation_start_date
+            while temp_date <= settle_date:
+                # 排除週末，但若結算日剛好是週末，則保留結算日
+                if temp_date.weekday() < 5 or temp_date == settle_date: # 0-4 是週一到週五
+                    sim_dates.append(temp_date)
+                temp_date += timedelta(days=1)
+
+
+            for sim_date in sim_dates:
+                
+                # 計算當前模擬日期距離結算日的剩餘天數
+                days_left = (settle_date - sim_date).days
+                time_to_expiry = days_left / 365.0
+                
+                # 排除 T < 0 的情況
+                if time_to_expiry < 0:
+                    continue
+                
+                current_total_value = 0.0
+                
+                for index, row in options_df.iterrows():
+                    
+                    K = float(row["履約價"])
+                    opt_code = 'C' if row["選擇權類型"] == '買權' else 'P'
+                    is_buy = row["方向"] == "買進"
+                    
+                    # 1. 計算理論價 (在該天結束時的價值)
+                    # 標的物價格 S 假設不變，為 center
+                    theo_price = black_scholes_model(center, K, time_to_expiry, RISK_FREE_RATE, volatility, opt_code)
+                    
+                    # 2. 累加倉位價值
+                    current_value = theo_price * row["口數"] * MULTIPLIER_OPTION
+                    
+                    # 買方損益 = 現值 - 成本; 賣方損益 = 成本 - 現值
+                    cost_value = row["成交價"] * row["口數"] * MULTIPLIER_OPTION
+                    
+                    if is_buy:
+                        profit_loss = current_value - cost_value
+                    else:
+                        profit_loss = cost_value - current_value
+                    
+                    current_total_value += profit_loss
+
+                # 該行資料 (每日彙總)
+                daily_results.append({
+                    "模擬日期": sim_date.strftime("%Y-%m-%d"),
+                    "剩餘天數(T)": days_left,
+                    "年化時間(T)": f"{time_to_expiry:.4f}",
+                    "模擬結算價": f"{center:,.1f}",
+                    "總持倉理論損益(元)": current_total_value
+                })
+
+            results_df = pd.DataFrame(daily_results)
+            
+            st.markdown(f"#### 結算日：{settle_date.strftime('%Y-%m-%d')} (模擬結算價: {center:,.1f})")
             
             # 格式化表格
             def color_pl(val):
                 try: f=float(val)
                 except: return ''
-                if f>0: return 'color: #0b5cff; font-weight: bold;'
-                elif f<0: return 'color: #cf1322; font-weight: bold;'
+                if f>0: return 'background-color: #d8f5e2; color: #0b5cff; font-weight: 700;'
+                elif f<0: return 'background-color: #ffe6e8; color: #cf1322; font-weight: 700;'
                 return ''
             
             styled_results = results_df.style.format({
-                "履約價": "{:,.1f}",
-                "成交價(點)": "{:,.2f}",
-                "理論價(點)": "{:,.2f}",
-                "內含價值(點)": "{:,.2f}",
-                "時間價值(點)": "{:,.2f}",
-                "價值變化(點)": "{:,.2f}",
-                "剩餘價值損益(元)": "{:,.0f}"
-            }).applymap(color_pl, subset=["剩餘價值損益(元)"])
+                "總持倉理論損益(元)": "{:,.0f}",
+            }).applymap(color_pl, subset=["總持倉理論損益(元)"])
             
             st.dataframe(styled_results, use_container_width=True)
             
-            st.caption("🚨 **風險提示:** 這是基於 Black-Scholes 模型和您輸入的 **假設波動率** 計算的**理論值**，實際市場價值會隨真實波動率、利率、股利、及市場情緒而有巨大差異。")
+            st.caption(f"表格顯示：假設指數每天都停留在 **{center:,.1f}**，波動率維持 **{volatility*100:.1f}%** 不變，隨著時間流逝到 **{settle_date.strftime('%Y-%m-%d')}** 時，您的持倉總損益理論值。")
 
     st.markdown("</div>", unsafe_allow_html=True)
