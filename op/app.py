@@ -441,11 +441,13 @@ else:
             del_col1, del_col2 = st.columns([1,2])
             with del_col1:
                 del_index = st.number_input("輸入要刪除的索引", min_value=0, max_value=len(positions_df)-1, step=1, key="del_idx_input")
-            with col_load:
-                if st.button("🗑️ 確認刪除該倉位", type="primary", use_container_width=True):
+            with del_col2: # <-- 修正區塊開始
+                st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True) # 調整按鈕位置
+                if st.button("🗑️ 確認刪除該倉位", type="primary", use_container_width=True): # <-- 修正：新增按鈕
                     st.session_state.positions = positions_df.drop(int(del_index)).reset_index(drop=True)
                     st.session_state._edit_index = -1
                     st.success(f"✅ 已刪除索引 {int(del_index)} 的倉位。")
+            # <-- 修正區塊結束
         else:
             st.info("目前無倉位可刪除。")
             
