@@ -284,6 +284,9 @@ st.markdown("<div class='card'>", unsafe_allow_html=True)
 st.markdown('<div class="section-title">➕ 新增倉位 (建立持倉)</div>', unsafe_allow_html=True)
 
 with st.form(key="add_position_form"):
+    # 確保履約價的預設值計算在表單內，並使用 key
+    strike_default = round(st.session_state.center_price / 100) * 100 
+    
     c1, c2, c3 = st.columns(3)
     with c1:
         new_strategy = st.selectbox("策略", ["策略 A", "策略 B"], key="new_strategy")
@@ -294,35 +297,45 @@ with st.form(key="add_position_form"):
     with c3:
         new_entry = st.number_input("成交價（權利金或口數成交價）", min_value=0.0, step=0.5, value=0.0, key="new_entry")
     
-    # --- 修正重點：履約價邏輯重新建立 ---
+    # --- 修正重點區塊：控制選擇權相關輸入的顯示 ---
+    
+    # 預設值，即使沒有顯示也要在 session_state 中有值，避免 Key Error
     new_opt_type = ""
-    new_strike = "" # 預設為空字串
+    new_strike = "" 
 
-    if new_product == "選擇權":
-        # 這裡才是正確顯示選擇權相關輸入組件的地方
+    if st.session_state.new_product == "選擇權":
+        # 只有在選擇「選擇權」時，才渲染這些組件
         opt_col1, opt_col2 = st.columns(2)
         with opt_col1:
-            new_opt_type = st.selectbox("選擇權類型", ["買權", "賣權"], key="new_opt_type")
+            # 必須使用不同的 key，確保不與 new_opt_type 衝突，這裡使用 new_opt_type_select
+            st.session_state.new_opt_type_select = st.selectbox("選擇權類型", ["買權", "賣權"], key="new_opt_type_select")
+            new_opt_type = st.session_state.new_opt_type_select # 更新要儲存的值
         with opt_col2:
-            strike_default = round(st.session_state.center_price / 100) * 100 
-            # 確保 value 是一個 float，並將結果賦予 new_strike
-            new_strike = st.number_input("履約價", min_value=0.0, step=0.5, value=float(strike_default), key="new_strike_input") 
+            # 必須使用不同的 key，這裡使用 new_strike_input
+            st.session_state.new_strike_input = st.number_input("履約價", min_value=0.0, step=0.5, value=float(strike_default), key="new_strike_input") 
+            new_strike = st.session_state.new_strike_input # 更新要儲存的值
     
     # 修正重點：新增提交按鈕
     submitted = st.form_submit_button("✅ 新增倉位 (加入持倉)", use_container_width=True)
     
     if submitted:
-        # 修正：確保 new_strike 在微台時為空字串，在選擇權時為 float
-        strike_value = float(new_strike) if new_product == "選擇權" and new_strike != "" else ""
+        # 修正：確保 new_strike 在微台時為空字串，在選擇權時從 session_state.new_strike_input 取得 float 值
+        if st.session_state.new_product == "選擇權":
+             # 必須在提交後檢查 session_state 中對應的 key 是否存在
+             strike_value = float(st.session_state.get("new_strike_input", "")) if "new_strike_input" in st.session_state else ""
+             new_opt_type = st.session_state.get("new_opt_type_select", "")
+        else:
+             strike_value = ""
+             new_opt_type = ""
         
         rec = {
-            "策略": new_strategy,
-            "商品": new_product,
-            "選擇權類型": new_opt_type if new_product == "選擇權" else "",
+            "策略": st.session_state.new_strategy,
+            "商品": st.session_state.new_product,
+            "選擇權類型": new_opt_type,
             "履約價": strike_value,
-            "方向": new_direction,
-            "口數": int(new_lots),
-            "成交價": float(new_entry)
+            "方向": st.session_state.new_direction,
+            "口數": int(st.session_state.new_lots),
+            "成交價": float(st.session_state.new_entry)
         }
         st.session_state.positions = pd.concat([st.session_state.positions, pd.DataFrame([rec])], ignore_index=True)
         st.success("已新增倉位，請在下方持倉明細確認。")
@@ -696,9 +709,9 @@ if not positions_df.empty:
         initial_days = (settle_date - date.today()).days
         days_to_simulate = st.number_input(
             "模擬天數 (N 天內，從結算日前 N 天開始)",
-            value=min(5, initial_days),
+            value=min(5, initial_days) if initial_days > 0 else 1,
             min_value=1,
-            max_value=initial_days,
+            max_value=initial_days if initial_days > 0 else 1,
             step=1
         )
         
@@ -753,7 +766,7 @@ if not positions_df.empty:
 
                 for index, row in options_df.iterrows():
                     
-                    K = float(row["履約價"])
+                    K = float(row["履約價"]) if row["履約價"] != "" else center # 確保履約價是 float
                     opt_code = 'C' if row["選擇權類型"] == '買權' else 'P'
                     is_buy = row["方向"] == "買進"
                     
