@@ -81,6 +81,10 @@ st.markdown(
 st.markdown('<div class="title">📈 選擇權與微台損益模擬（即時指數版）</div>'
             '<div class="subtitle">自動抓取加權指數，作為價平中心點進行模擬</div>', unsafe_allow_html=True)
 
+# ---
+## ⚙️ 系統設定與資料獲取
+# ---
+
 # ======== 設定常數 ========
 POSITIONS_FILE = "positions_store.json"
 MULTIPLIER_MICRO = 10.0
@@ -128,10 +132,9 @@ def load_positions(fname=POSITIONS_FILE):
             with open(fname, "r", encoding="utf-8") as f:
                 data = json.load(f)
             
-            # 判斷是新格式 (dict) 還是舊格式 (list)
             if isinstance(data, list):
                 df = pd.DataFrame(data)
-                loaded_center = None # 舊格式無儲存中心價
+                loaded_center = None 
             elif isinstance(data, dict) and "positions" in data:
                 df = pd.DataFrame(data["positions"])
                 loaded_center = data.get("center_price")
@@ -139,7 +142,6 @@ def load_positions(fname=POSITIONS_FILE):
                 st.error("讀取儲存檔格式錯誤。", icon="❌")
                 return None, None
             
-            # 確保所有欄位都存在且型別正確
             required_cols = {
                 "策略": str, "商品": str, "選擇權類型": str, "履約價": object, 
                 "方向": str, "口數": int, "成交價": float
@@ -166,7 +168,7 @@ def load_positions(fname=POSITIONS_FILE):
 def save_positions(df, center_price, fname=POSITIONS_FILE):
     try:
         data = {
-            "center_price": center_price, # <-- 新增儲存中心價
+            "center_price": center_price, 
             "positions": df.to_dict(orient="records")
         }
         with open(fname, "w", encoding="utf-8") as f:
@@ -187,23 +189,26 @@ if "_edit_index" not in st.session_state:
     st.session_state._edit_index = -1
 if "tse_index_price" not in st.session_state:
     st.session_state.tse_index_price = None
-if "center_price" not in st.session_state: # <-- 追蹤並儲存價平中心價
+if "center_price" not in st.session_state: 
     st.session_state.center_price = None
 
-# ********* 獲取並設定中心價 (優先使用儲存的值，其次使用即時指數) *********
+# ********* 獲取並設定中心價 *********
 if st.session_state.tse_index_price is None:
     tse_price = get_tse_index_price()
     if tse_price and tse_price > 1000:
         st.session_state.tse_index_price = tse_price
         st.sidebar.success(f"🌐 最新加權指數：{tse_price:,.2f}。", icon="✅")
     else:
-        st.session_state.tse_index_price = 10000.0 # 備用值
+        st.session_state.tse_index_price = 10000.0
         st.sidebar.info("🌐 無法獲取即時指數，使用備用中心價 10,000.0。", icon="ℹ️")
 
-# 如果 session state 中沒有儲存的中心價，則使用 TSE 指數作為首次預設值
 if st.session_state.center_price is None:
     st.session_state.center_price = st.session_state.tse_index_price
         
+# ---
+## 🗃️ 倉位管理與檔案操作
+# ---
+
 # ======== 檔案操作區 ========
 with st.container():
     st.markdown("<div class='card'>", unsafe_allow_html=True)
@@ -211,11 +216,11 @@ with st.container():
     col1, col2, col3 = st.columns([1,1,1])
     with col1:
         if st.button("🔄 載入倉位", use_container_width=True):
-            df, loaded_center = load_positions() # <-- 接收載入的中心價
+            df, loaded_center = load_positions() 
             if df is not None:
                 st.session_state.positions = df
                 if loaded_center is not None:
-                    st.session_state.center_price = loaded_center # <-- 更新 session state 中的中心價
+                    st.session_state.center_price = loaded_center 
                     st.success(f"✅ 已從檔案載入倉位及中心價 {loaded_center:,.1f}")
                 else:
                     st.success("✅ 已從檔案載入倉位，中心價使用預設值")
@@ -224,15 +229,12 @@ with st.container():
     with col2:
         if st.button("💾 儲存倉位", use_container_width=True):
             if not st.session_state.positions.empty:
-                # 獲取目前 sidebar 輸入框的值作為要儲存的中心價
                 current_center = st.session_state.get("simulation_center_price_input")
-                
-                # 如果 sidebar 輸入框有值，就用它；否則使用 session state 的當前值
                 center_to_save = current_center if current_center is not None else st.session_state.center_price
                 
                 ok = save_positions(st.session_state.positions, center_to_save)
                 if ok:
-                    st.session_state.center_price = center_to_save # 更新 session state
+                    st.session_state.center_price = center_to_save 
                     st.success(f"✅ 已儲存到 {POSITIONS_FILE}，中心價 {center_to_save:,.1f} 已記錄")
             else:
                 st.info("目前沒有倉位可儲存。")
@@ -243,11 +245,11 @@ with st.container():
             ])
             st.session_state._edit_index = -1
             st.session_state.target_prices = []
-            st.session_state.center_price = st.session_state.tse_index_price # 清空後中心價回到即時指數
+            st.session_state.center_price = st.session_state.tse_index_price 
             st.success("已清空所有倉位與狀態。")
     st.markdown("</div>", unsafe_allow_html=True)
 
-# ======== 新增倉位 (不變) ========
+# ======== 新增倉位 (使用 session state center_price) ========
 st.markdown("<div class='card'>", unsafe_allow_html=True)
 st.markdown('<div class="section-title">➕ 新增倉位 (建立持倉)</div>', unsafe_allow_html=True)
 
@@ -267,7 +269,6 @@ with st.form(key="add_position_form"):
         with opt_col1:
             new_opt_type = st.selectbox("選擇權類型", ["買權", "賣權"], key="new_opt_type")
         with opt_col2:
-            # 履約價預設值使用當前中心價的百位數整數
             strike_default = round(st.session_state.center_price / 100) * 100 
             new_strike = st.number_input("履約價", min_value=0.0, step=0.5, value=strike_default, key="new_strike") 
     else:
@@ -290,7 +291,7 @@ with st.form(key="add_position_form"):
 
 st.markdown("</div>", unsafe_allow_html=True)
 
-# ======== 持倉明細 & 編輯/刪除 (不變) ========
+# ======== 持倉明細 & 編輯/刪除 ========
 positions_df = st.session_state.positions.copy()
 if positions_df.empty:
     st.info("尚無任何倉位資料，請先新增或從檔案載入。")
@@ -373,7 +374,7 @@ else:
             del_col1, del_col2 = st.columns([1,2])
             with del_col1:
                 del_index = st.number_input("輸入要刪除的索引", min_value=0, max_value=len(positions_df)-1, step=1, key="del_idx_input")
-            with del_col2:
+            with col_load:
                 if st.button("🗑️ 確認刪除該倉位", type="primary", use_container_width=True):
                     st.session_state.positions = positions_df.drop(int(del_index)).reset_index(drop=True)
                     st.session_state._edit_index = -1
@@ -383,6 +384,10 @@ else:
             
     st.markdown("</div>", unsafe_allow_html=True)
     
+# ---
+## 📈 損益計算與模擬
+# ---
+    
 # 損益計算僅在有倉位時進行
 if not positions_df.empty:
 
@@ -391,15 +396,15 @@ if not positions_df.empty:
     st.sidebar.markdown('## 🛠️ 損益模擬設定')
     center = st.sidebar.number_input(
         "價平中心價 (Center)", 
-        value=st.session_state.center_price, # <-- 使用 session state 儲存的值作為預設值
-        key="simulation_center_price_input", # <-- 設置 key 以便儲存按鈕讀取
+        value=st.session_state.center_price, 
+        key="simulation_center_price_input", 
         step=1.0, 
         help="損益曲線圖的中心點價格，預設為最新加權指數/上次儲存值"
     )
     
     PRICE_RANGE = st.sidebar.number_input(
         "模擬範圍 (±點數)", 
-        value=1500, # 維持 1500 點預設
+        value=1500, 
         step=100, 
         min_value=100,
         help="價格範圍為 [Center - Range, Center + Range]"
@@ -569,10 +574,20 @@ if not positions_df.empty:
             total_profit_tp = target_df[target_df['到價']==tp]['總損益'].iloc[0]
             st_class = "color: #0b5cff;" if total_profit_tp > 0 else "color: #cf1322;"
             
-            # 修正後的 expader 標題 (使用 HTML <b> 代替 Markdown **)
-            expander_title = f"🔍 <b>到價 {tp:,.1f}</b> — 總損益：<span style='{st_class}'>{total_profit_tp:,.0f}</span> (點擊展開)"
+            # 修正後的 expader 標題 (只用純文字，移除 HTML/CSS)
+            expander_label = f"🔍 到價 {tp:,.1f} — 總損益：{total_profit_tp:,.0f} (點擊展開)"
             
-            with st.expander(expander_title, expanded=False, unsafe_allow_html=True): 
+            # 使用 st.expander 
+            with st.expander(expander_label, expanded=False): 
+                
+                # 在展開區塊內，使用 st.markdown 顯示美化後的標題
+                st.markdown(f"""
+                <div style='margin-bottom: 10px; padding: 5px 10px; background-color: #f0f8ff; border-radius: 6px; border-left: 5px solid #0b5cff;'>
+                    <b>目標到價: {tp:,.1f}</b> / 
+                    <b>總損益: <span style='{st_class}'>{total_profit_tp:,.0f}</span></b>
+                </div>
+                """, unsafe_allow_html=True)
+                
                 df_detail = per_position_details[tp].copy()
                 df_detail_display = df_detail.reset_index(drop=True)
                 df_detail_display = df_detail_display[[
