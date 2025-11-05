@@ -76,6 +76,21 @@ st.markdown(
         padding: 5px 10px;
         margin-bottom: 10px;
     }
+    /* 自定義列表式倉位顯示的樣式 */
+    .position-row {
+        display: flex;
+        align-items: center;
+        padding: 8px 0;
+        border-bottom: 1px dashed #e0e0e0;
+        font-size: 14px;
+    }
+    .col-strategy { width: 10%; font-weight: bold; color: #04335a; padding-left: 5px; }
+    .col-details { width: 55%; }
+    .col-lots { width: 15%; text-align: left; font-weight: bold; }
+    .col-entry { width: 10%; text-align: right; color: #555; }
+    .col-delete { width: 10%; text-align: right; }
+    .buy-color { color: #0b5cff; }
+    .sell-color { color: #cf1322; }
     </style>
     """,
     unsafe_allow_html=True,
@@ -355,101 +370,145 @@ with st.form(key="add_position_form"):
         }
         st.session_state.positions = pd.concat([st.session_state.positions, pd.DataFrame([rec])], ignore_index=True)
         st.success("已新增倉位，請在下方持倉明細確認。")
+        st.rerun() # 新增後刷新，確保列表立即更新
 
 st.markdown("</div>", unsafe_allow_html=True)
 
-# ======== 持倉明細 & 編輯/刪除 ========
+# ======== 持倉明細 & 編輯/刪除 (改為列表式顯示和行旁按鈕) ========
 positions_df = st.session_state.positions.copy()
 if positions_df.empty:
     st.info("尚無任何倉位資料，請先新增或從檔案載入。")
 else:
     st.markdown("<div class='card'>", unsafe_allow_html=True)
-    st.markdown('<div class="section-title">📋 現有持倉明細</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">📋 現有持倉明細與快速移除</div>', unsafe_allow_html=True)
     
-    display_df = positions_df.reset_index().rename(columns={"index": "索引"})
+    # 標題行
+    st.markdown("""
+    <div class="position-row" style="font-weight: 700; background-color: #f7f9fc; border-bottom: 2px solid #ccc; padding: 10px 0;">
+        <span class="col-strategy">策略</span>
+        <span class="col-details">細節 (商品 / 類型 / 履約價)</span>
+        <span class="col-lots">方向/口數</span>
+        <span class="col-entry">成交價</span>
+        <span class="col-delete">操作</span>
+    </div>
+    """, unsafe_allow_html=True)
+
     
-    def row_color_by_strategy(row):
-        if row["策略"] == "策略 A": return ['background-color: #e6f7ff'] * len(row)
-        elif row["策略"] == "策略 B": return ['background-color: #e8fff5'] * len(row)
-        return [''] * len(row)
+    # 使用迴圈遍歷 DataFrame 的每一行 (iterrows 包含 index)
+    for index, row in positions_df.iterrows():
+        
+        # 1. 組裝詳細資訊字串
+        details = f"({index}) {row['商品']} / "
+        if row['商品'] == "選擇權":
+            strike_val = row['履約價']
+            details += f"{row['選擇權類型']} @ {strike_val:,.1f}" if strike_val != "" else f"{row['選擇權類型']} @ ---"
+        else:
+            details += f"---"
+        
+        # 2. 決定方向顏色
+        direction_style = "buy-color" if row['方向'] == "買進" else "sell-color"
+        
+        # 3. 使用 st.columns 創建互動式佈局
+        c_strat, c_details, c_lots, c_entry, c_delete = st.columns([1, 5.5, 1.5, 1.5, 1])
 
-    styled_display = display_df.style.format({
-        "履約價": lambda v: f"{v:,.1f}" if v != "" else "",
-        "成交價": "{:,.2f}",
-        "口數": "{:d}"
-    }).apply(row_color_by_strategy, axis=1)
+        with c_strat:
+            # 使用索引作為標籤
+            st.markdown(f'<div class="col-strategy">{row["策略"]}</div>', unsafe_allow_html=True)
 
-    st.dataframe(styled_display, use_container_width=True)
+        with c_details:
+            st.markdown(f'<div class="col-details">{details}</div>', unsafe_allow_html=True)
+            
+        with c_lots:
+            # 使用 HTML 標記來控制方向和口數的樣式
+            st.markdown(f'<div class="col-lots {direction_style}">{row["方向"]} {row["口數"]} 口</div>', unsafe_allow_html=True)
+            
+        with c_entry:
+            st.markdown(f'<div class="col-entry">{row["成交價"]:,.2f}</div>', unsafe_allow_html=True)
+
+        with c_delete:
+            # 💥 關鍵：使用唯一的 key，點擊後觸發刪除操作
+            if st.button("移除", key=f"delete_btn_{index}", type="secondary", use_container_width=True):
+                # 執行刪除操作 (使用索引刪除，不會錯亂)
+                st.session_state.positions = st.session_state.positions.drop(index).reset_index(drop=True)
+                st.toast(f"✅ 已移除 (索引 {index}) 倉位！")
+                st.rerun() # 刪除後立即刷新頁面以更新列表
+
     st.markdown("</div>", unsafe_allow_html=True)
 
+    # 編輯功能 (改為使用 Selectbox 選擇索引)
     st.markdown("<div class='card'>", unsafe_allow_html=True)
-    st.markdown('<div class="section-title">🛠️ 編輯與刪除倉位</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">🛠️ 編輯倉位 (索引式)</div>', unsafe_allow_html=True)
     
-    max_index = len(display_df) - 1
+    current_indices = positions_df.index.tolist()
     
     with st.expander("✏️ 編輯單列倉位"):
-        if max_index >= 0:
-            col_idx, col_load = st.columns([1,2])
+        
+        col_idx, col_load = st.columns([1,2])
+        
+        if current_indices:
+            # 確保 _edit_index 初始值在有效範圍內
+            if st.session_state._edit_index == -1 and current_indices:
+                 st.session_state._edit_index = current_indices[0]
+                 
             with col_idx:
-                row_to_edit = st.number_input("要編輯的索引 (0 開始)", min_value=0, max_value=max_index, value=0, step=1, key="edit_idx_input")
+                # 使用 selectbox 確保用戶選擇的是有效的現有索引
+                selected_index = st.selectbox(
+                    "選擇要編輯的索引", 
+                    options=current_indices, 
+                    index=current_indices.index(st.session_state._edit_index) if st.session_state._edit_index in current_indices else 0,
+                    key="edit_select_index"
+                )
+            
             with col_load:
-                if st.button(f"載入索引 {int(row_to_edit)} 到編輯表單", use_container_width=True):
-                    st.session_state._edit_index = int(row_to_edit)
-                    st.toast(f"已載入索引 {row_to_edit} 的資料。")
+                st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
+                if st.button(f"載入索引 {selected_index} 到編輯表單", use_container_width=True):
+                    st.session_state._edit_index = int(selected_index)
+                    st.toast(f"已載入索引 {selected_index} 的資料。")
 
             idx = st.session_state._edit_index
-            if 0 <= idx <= max_index:
+            
+            # 檢查索引是否有效
+            if idx in positions_df.index:
                 st.markdown(f"**👉 編輯索引 {idx} 的倉位（修改後按 儲存修改）**")
-                row = display_df.loc[idx]
+                # 由於 st.session_state.positions 已經被 drop 掉，這裡需要從原始的 positions_df 獲取行
+                row = positions_df.loc[idx]
+                
                 with st.form(key=f"edit_form_{idx}"):
                     f_col1, f_col2, f_col3 = st.columns(3)
                     with f_col1:
-                        f_strategy = st.selectbox("策略", ["策略 A", "策略 B"], index=0 if row["策略"] == "策略 A" else 1)
-                        f_product = st.selectbox("商品", ["微台", "選擇權"], index=0 if row["商品"] == "微台" else 1)
+                        f_strategy = st.selectbox("策略", ["策略 A", "策略 B"], index=0 if row["策略"] == "策略 A" else 1, key=f"e_strat_{idx}")
+                        f_product = st.selectbox("商品", ["微台", "選擇權"], index=0 if row["商品"] == "微台" else 1, key=f"e_prod_{idx}")
                     with f_col2:
-                        f_direction = st.selectbox("方向", ["買進", "賣出"], index=0 if row["方向"] == "買進" else 1)
-                        f_lots = st.number_input("口數", value=int(row["口數"]), step=1, min_value=1)
+                        f_direction = st.selectbox("方向", ["買進", "賣出"], index=0 if row["方向"] == "買進" else 1, key=f"e_dir_{idx}")
+                        f_lots = st.number_input("口數", value=int(row["口數"]), step=1, min_value=1, key=f"e_lots_{idx}")
                     with f_col3:
-                        f_entry = st.number_input("成交價", value=float(row["成交價"]), step=0.1)
+                        f_entry = st.number_input("成交價", value=float(row["成交價"]), step=0.1, key=f"e_entry_{idx}")
 
+                    # 條件式渲染選擇權欄位
                     if f_product == "選擇權":
                         opt_options = ["買權", "賣權"]
                         default_opt_idx = 0 if row["選擇權類型"] == "買權" else 1
-                        f_opt_type = st.selectbox("選擇權類型", opt_options, index=default_opt_idx)
-                        f_strike = st.number_input("履約價", value=float(row["履約價"]) if row["履約價"] != "" else st.session_state.center_price, step=0.5)
+                        f_opt_type = st.selectbox("選擇權類型", opt_options, index=default_opt_idx, key=f"e_opttype_{idx}")
+                        strike_val = float(row["履約價"]) if row["履約價"] != "" else st.session_state.center_price
+                        f_strike = st.number_input("履約價", value=strike_val, step=0.5, key=f"e_strike_{idx}")
                     else:
                         f_opt_type = ""
                         f_strike = ""
                     
                     submitted = st.form_submit_button("💾 儲存修改", use_container_width=True)
                     if submitted:
-                        updated = st.session_state.positions.copy().reset_index(drop=True)
-                        updated.loc[idx, ["策略","商品","選擇權類型","履約價","方向","口數","成交價"]] = [
+                        # 直接修改該索引的行
+                        st.session_state.positions.loc[idx, ["策略","商品","選擇權類型","履約價","方向","口數","成交價"]] = [
                             f_strategy, f_product, f_opt_type, float(f_strike) if f_product=="選擇權" else "",
                             f_direction, int(f_lots), float(f_entry)
                         ]
-                        st.session_state.positions = updated
                         st.session_state._edit_index = -1
                         st.success("✅ 倉位已更新，請查看上方明細。")
+                        st.rerun() 
             else:
-                st.info("請先載入要編輯的索引。")
+                st.info("請先載入要編輯的倉位索引。")
         else:
-            st.info("目前無倉位可編輯。")
-
-    with st.expander("🗑️ 刪除單列倉位"):
-        if max_index >= 0:
-            del_col1, del_col2 = st.columns([1,2])
-            with del_col1:
-                del_index = st.number_input("輸入要刪除的索引", min_value=0, max_value=len(positions_df)-1, step=1, key="del_idx_input")
-            with del_col2: # <-- 修正區塊開始
-                st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True) # 調整按鈕位置
-                if st.button("🗑️ 確認刪除該倉位", type="primary", use_container_width=True): # <-- 修正：新增按鈕
-                    st.session_state.positions = positions_df.drop(int(del_index)).reset_index(drop=True)
-                    st.session_state._edit_index = -1
-                    st.success(f"✅ 已刪除索引 {int(del_index)} 的倉位。")
-            # <-- 修正區塊結束
-        else:
-            st.info("目前無倉位可刪除。")
+             st.info("目前無倉位可編輯。")
             
     st.markdown("</div>", unsafe_allow_html=True)
     
