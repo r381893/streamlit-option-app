@@ -18,13 +18,14 @@ rcParams['axes.unicode_minus'] = False
 # ======== 頁面設定 ========
 st.set_page_config(page_title="選擇權與微台損益模擬（即時指數版）", layout="wide")
 
-# ======== CSS 樣式（美化與字體調整） ========
+# ======== CSS 樣式（美化、字體調整、大小調整） ========
 st.markdown(
     """
     <style>
     /* 💥 核心修改：將整體字體替換為標楷體 (或備用中文字體) */
     html, body, .stApp, .stApp * {
         font-family: 'DFKai-SB', 'BiauKai', 'Microsoft JhengHei', sans-serif !important;
+        font-size: 15px; /* 調整基礎字體大小 */
     }
     
     :root {
@@ -36,7 +37,7 @@ st.markdown(
     body { background-color: var(--page-bg); }
     /* 主標題 */
     .title {
-        font-size: 28px;
+        font-size: 30px; /* 標題放大 */
         font-weight: 800;
         color: #04335a;
         margin-bottom: 4px;
@@ -46,6 +47,7 @@ st.markdown(
         color: var(--muted);
         margin-top: -8px;
         margin-bottom: 20px;
+        font-size: 16px; /* 副標題放大 */
     }
     /* 卡片樣式 */
     .card {
@@ -57,7 +59,7 @@ st.markdown(
     }
     /* 區塊標題 */
     .card .section-title {
-        font-size: 18px;
+        font-size: 20px; /* 區塊標題放大 */
         font-weight: 700;
         color: #04335a;
         margin-bottom: 15px;
@@ -68,46 +70,22 @@ st.markdown(
     .stButton>button {
         border-radius: 8px;
         height: 38px;
+        font-size: 15px; /* 按鈕字體大小 */
     }
-    .small-muted { color: var(--muted); font-size: 13px; }
+    .small-muted { color: var(--muted); font-size: 14px; }
     hr { border: 0; height: 1px; background: #eaeef7; margin: 14px 0; }
-    /* 讓 Streamlit Table/DataFrame 內部的顏色應用更明顯 */
-    .css-1r6wy5w, .css-e370h9 {
-        border-radius: 12px;
-        overflow: hidden;
-    }
-    /* 確保 Sidebar 中的警告/成功訊息顯示更清晰 */
-    .stSidebar .stAlert {
-        padding: 5px 10px;
-        margin-bottom: 10px;
-    }
     
     /* ***** 修正後的自定義列表式倉位顯示的樣式 ***** */
-    .position-row {
-        display: flex;
-        align-items: center;
-        padding: 8px 0;
-        border-bottom: 1px dashed #e0e0e0;
-        font-size: 14px;
+    .position-row-text {
+        font-size: 16px; /* 倉位列表文字放大 */
+        padding: 5px 0;
     }
-    /* 調整寬度比例：策略(10%) 細節(50%) 方向/口數(15%) 成交價(15%) 操作(10%) */
-    .col-strategy { width: 10%; font-weight: bold; color: #04335a; padding-left: 5px; }
-    .col-details { width: 50%; } 
-    .col-lots { 
-        width: 15%; 
-        text-align: left; 
-        font-weight: bold; 
-        white-space: nowrap; /* 避免方向/口數換行 */
-    } 
-    .col-entry { 
-        width: 15%; 
-        text-align: right; 
-        color: #555; 
-        white-space: nowrap; /* 避免成交價換行 */
-    } 
-    .col-delete { width: 10%; text-align: right; }
-    .buy-color { color: #0b5cff; }
-    .sell-color { color: #cf1322; }
+    /* 確保方向/口數、成交價不換行 */
+    .position-nowrap {
+        white-space: nowrap; /* 強制不換行，避免長數字斷開 */
+    }
+    .buy-color { color: #0b5cff; font-weight: bold; }
+    .sell-color { color: #cf1322; font-weight: bold; }
     
     /* 確保文字在 st.columns 內垂直居中 */
     .st-emotion-cache-p5msec {
@@ -407,8 +385,8 @@ else:
     st.markdown('<div class="section-title">📋 現有持倉明細與快速移除</div>', unsafe_allow_html=True)
     
     # 標題行 (使用 st.columns 模擬標題，與下方內容對齊)
-    # 調整比例為：策略(0.8) 細節(5.2) 方向/口數(1.5) 成交價(1.5) 操作(1)
-    c_strat_h, c_details_h, c_lots_h, c_entry_h, c_delete_h = st.columns([0.8, 5.2, 1.5, 1.5, 1])
+    # 調整比例為：策略(1) 細節(5.5) 方向/口數(1.5) 成交價(1.5) 操作(1)
+    c_strat_h, c_details_h, c_lots_h, c_entry_h, c_delete_h = st.columns([1, 5.5, 1.5, 1.5, 1])
     c_strat_h.markdown("策略", unsafe_allow_html=True)
     c_details_h.markdown("細節 (索引/商品/類型/履約價)", unsafe_allow_html=True)
     c_lots_h.markdown("方向/口數", unsafe_allow_html=True)
@@ -431,23 +409,22 @@ else:
         direction_style = "buy-color" if row['方向'] == "買進" else "sell-color"
         
         # 3. 使用 st.columns 創建互動式佈局 (與標題行比例保持一致)
-        c_strat, c_details, c_lots, c_entry, c_delete = st.columns([0.8, 5.2, 1.5, 1.5, 1])
+        c_strat, c_details, c_lots, c_entry, c_delete = st.columns([1, 5.5, 1.5, 1.5, 1])
 
-        # 使用自定義的 CSS class 來控制垂直對齊
+        # 使用自定義的 CSS class 來控制字體大小
         with c_strat:
-            st.markdown(f'<div class="col-strategy">{row["策略"]}</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="position-row-text">{row["策略"]}</div>', unsafe_allow_html=True)
 
         with c_details:
-            st.markdown(f'<div class="col-details">{details}</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="position-row-text">{details}</div>', unsafe_allow_html=True)
             
         with c_lots:
-            # 使用 HTML 標記來控制方向和口數的樣式
-            # 依賴 CSS 樣式中的 white-space: nowrap 來防止換行
-            st.markdown(f'<div class="col-lots {direction_style}">{row["方向"]} {row["口數"]} 口</div>', unsafe_allow_html=True)
+            # 💥 關鍵修正：將方向/口數放在一個 div 內，並使用樣式避免換行
+            st.markdown(f'<div class="position-row-text position-nowrap {direction_style}">{row["方向"]} {row["口數"]} 口</div>', unsafe_allow_html=True)
             
         with c_entry:
-            # 依賴 CSS 樣式中的 white-space: nowrap 來防止換行
-            st.markdown(f'<div class="col-entry" style="text-align: right;">{row["成交價"]:,.2f}</div>', unsafe_allow_html=True)
+            # 💥 關鍵修正：確保成交價強制不換行，並靠右對齊
+            st.markdown(f'<div class="position-row-text position-nowrap" style="text-align: right;">{row["成交價"]:,.2f}</div>', unsafe_allow_html=True)
 
         with c_delete:
             # 💥 關鍵：使用唯一的 key，點擊後觸發刪除操作
