@@ -76,7 +76,8 @@ st.markdown(
         padding: 5px 10px;
         margin-bottom: 10px;
     }
-    /* 自定義列表式倉位顯示的樣式 */
+    
+    /* ***** 修正後的自定義列表式倉位顯示的樣式 ***** */
     .position-row {
         display: flex;
         align-items: center;
@@ -84,13 +85,21 @@ st.markdown(
         border-bottom: 1px dashed #e0e0e0;
         font-size: 14px;
     }
+    /* 調整寬度比例，給細節和口數更多空間 */
     .col-strategy { width: 10%; font-weight: bold; color: #04335a; padding-left: 5px; }
-    .col-details { width: 55%; }
-    .col-lots { width: 15%; text-align: left; font-weight: bold; }
-    .col-entry { width: 10%; text-align: right; color: #555; }
+    .col-details { width: 50%; } /* 增加細節空間 */
+    .col-lots { width: 15%; text-align: left; font-weight: bold; } /* 增加方向/口數空間 */
+    .col-entry { width: 15%; text-align: right; color: #555; } /* 增加成交價空間 */
     .col-delete { width: 10%; text-align: right; }
     .buy-color { color: #0b5cff; }
     .sell-color { color: #cf1322; }
+    
+    /* 確保文字在 st.columns 內垂直居中 */
+    .st-emotion-cache-p5msec {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+    }
     </style>
     """,
     unsafe_allow_html=True,
@@ -301,10 +310,8 @@ st.markdown('<div class="section-title">➕ 新增倉位 (建立持倉)</div>', 
 # 1. 策略和商品必須在 form 之外，才能讓商品選擇即時更新
 col_strat, col_prod = st.columns(2)
 with col_strat:
-    # 策略可以放在外面，方便使用 session state
     new_strategy = st.selectbox("策略", ["策略 A", "策略 B"], key="new_strategy_outside") 
 with col_prod:
-    # 💥 商品選擇必須移出 form 才能即時更新！
     new_product = st.selectbox("商品", ["微台", "選擇權"], key="new_product_outside") 
 
 # 2. 選擇權類型和履約價的條件式渲染 (依然在 form 之外)
@@ -317,29 +324,31 @@ if st.session_state.new_product_outside == "選擇權":
     st.markdown("##### 選擇權細節")
     opt_col1, opt_col2 = st.columns(2)
     with opt_col1:
-        # 💥 必須移出 form 才能即時更新！
         new_opt_type = st.selectbox("選擇權類型", ["買權", "賣權"], key="new_opt_type_outside")
     with opt_col2:
-        # 💥 必須移出 form 才能即時更新！
         new_strike = st.number_input("履約價", min_value=0.0, step=0.5, value=float(strike_default), key="new_strike_outside") 
     st.markdown("---") 
 
 # 3. 將其餘輸入放入 st.form，並使用 form key 確保數據在提交時被收集
 with st.form(key="add_position_form"):
     
-    # 將方向、口數、成交價放入 form 內
-    c1, c2 = st.columns(2)
+    # 調整：將方向、口數、成交價放在三欄
+    c1, c2, c3 = st.columns(3)
+    
     with c1:
-        # 顯示 form 外已選的值
         st.markdown(f"**策略：** `{st.session_state.new_strategy_outside}`")
-        st.markdown(f"**商品：** `{st.session_state.new_product_outside}`")
-        if st.session_state.new_product_outside == "選擇權":
-             st.markdown(f"**類型：** `{st.session_state.new_opt_type_outside}` / **履約價：** `{st.session_state.new_strike_outside:,.1f}`")
-
         new_direction = st.radio("方向", ["買進", "賣出"], horizontal=True, key="new_direction_inside")
         
     with c2:
+        st.markdown(f"**商品：** `{st.session_state.new_product_outside}`")
         new_lots = st.number_input("口數", min_value=1, step=1, value=1, key="new_lots_inside")
+        
+    with c3:
+        if st.session_state.new_product_outside == "選擇權":
+             st.markdown(f"**類型：** `{st.session_state.new_opt_type_outside}` / **履約價：** `{st.session_state.new_strike_outside:,.1f}`")
+        else:
+             st.markdown(f"**<div style='height: 19.5px;'></div>**", unsafe_allow_html=True) # 調整間距
+             
         new_entry = st.number_input("成交價（權利金或口數成交價）", min_value=0.0, step=0.5, value=0.0, key="new_entry_inside")
         
     # 提交按鈕
@@ -374,7 +383,7 @@ with st.form(key="add_position_form"):
 
 st.markdown("</div>", unsafe_allow_html=True)
 
-# ======== 持倉明細 & 編輯/刪除 (改為列表式顯示和行旁按鈕) ========
+# ======== 持倉明細 & 編輯/刪除 (列表式顯示和行旁按鈕) ========
 positions_df = st.session_state.positions.copy()
 if positions_df.empty:
     st.info("尚無任何倉位資料，請先新增或從檔案載入。")
@@ -382,17 +391,14 @@ else:
     st.markdown("<div class='card'>", unsafe_allow_html=True)
     st.markdown('<div class="section-title">📋 現有持倉明細與快速移除</div>', unsafe_allow_html=True)
     
-    # 標題行
-    st.markdown("""
-    <div class="position-row" style="font-weight: 700; background-color: #f7f9fc; border-bottom: 2px solid #ccc; padding: 10px 0;">
-        <span class="col-strategy">策略</span>
-        <span class="col-details">細節 (商品 / 類型 / 履約價)</span>
-        <span class="col-lots">方向/口數</span>
-        <span class="col-entry">成交價</span>
-        <span class="col-delete">操作</span>
-    </div>
-    """, unsafe_allow_html=True)
-
+    # 標題行 (使用 st.columns 模擬標題，與下方內容對齊)
+    c_strat_h, c_details_h, c_lots_h, c_entry_h, c_delete_h = st.columns([1, 5, 1.5, 1.5, 1])
+    c_strat_h.markdown("策略", unsafe_allow_html=True)
+    c_details_h.markdown("細節 (索引/商品/類型/履約價)", unsafe_allow_html=True)
+    c_lots_h.markdown("方向/口數", unsafe_allow_html=True)
+    c_entry_h.markdown("<div style='text-align: right;'>成交價</div>", unsafe_allow_html=True)
+    c_delete_h.markdown("<div style='text-align: right;'>操作</div>", unsafe_allow_html=True)
+    st.markdown("<hr style='margin-top: 5px; margin-bottom: 5px;'>", unsafe_allow_html=True)
     
     # 使用迴圈遍歷 DataFrame 的每一行 (iterrows 包含 index)
     for index, row in positions_df.iterrows():
@@ -408,11 +414,11 @@ else:
         # 2. 決定方向顏色
         direction_style = "buy-color" if row['方向'] == "買進" else "sell-color"
         
-        # 3. 使用 st.columns 創建互動式佈局
-        c_strat, c_details, c_lots, c_entry, c_delete = st.columns([1, 5.5, 1.5, 1.5, 1])
+        # 3. 使用 st.columns 創建互動式佈局 (與標題行比例保持一致)
+        c_strat, c_details, c_lots, c_entry, c_delete = st.columns([1, 5, 1.5, 1.5, 1])
 
+        # 使用自定義的 CSS class 來控制垂直對齊
         with c_strat:
-            # 使用索引作為標籤
             st.markdown(f'<div class="col-strategy">{row["策略"]}</div>', unsafe_allow_html=True)
 
         with c_details:
@@ -423,7 +429,7 @@ else:
             st.markdown(f'<div class="col-lots {direction_style}">{row["方向"]} {row["口數"]} 口</div>', unsafe_allow_html=True)
             
         with c_entry:
-            st.markdown(f'<div class="col-entry">{row["成交價"]:,.2f}</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="col-entry" style="text-align: right;">{row["成交價"]:,.2f}</div>', unsafe_allow_html=True)
 
         with c_delete:
             # 💥 關鍵：使用唯一的 key，點擊後觸發刪除操作
@@ -432,6 +438,10 @@ else:
                 st.session_state.positions = st.session_state.positions.drop(index).reset_index(drop=True)
                 st.toast(f"✅ 已移除 (索引 {index}) 倉位！")
                 st.rerun() # 刪除後立即刷新頁面以更新列表
+        
+        # 模擬分隔線
+        st.markdown("<hr style='margin-top: 5px; margin-bottom: 5px;'>", unsafe_allow_html=True)
+
 
     st.markdown("</div>", unsafe_allow_html=True)
 
