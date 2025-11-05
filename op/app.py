@@ -88,10 +88,12 @@ st.markdown(
     .sell-color { color: #cf1322; font-weight: bold; }
     
     /* 確保文字在 st.columns 內垂直居中 */
-    .st-emotion-cache-p5msec {
-        display: flex;
-        flex-direction: column;
-        justify-content: center;
+    /* 由於 Streamlit 經常更新 class 名稱，使用更通用的選擇器確保間距 */
+    div[data-testid="stExpander"] .stMarkdown h3 {
+        margin-top: 0 !important; /* 防止 Expander 標題與內容重疊 */
+    }
+    div[data-testid="stExpander"] > div:nth-child(2) {
+        padding-top: 10px; /* 為 Expander 內的內容增加頂部間距 */
     }
     </style>
     """,
@@ -419,15 +421,15 @@ else:
             st.markdown(f'<div class="position-row-text">{details}</div>', unsafe_allow_html=True)
             
         with c_lots:
-            # 💥 關鍵修正：將方向/口數放在一個 div 內，並使用樣式避免換行
+            # 關鍵修正：將方向/口數放在一個 div 內，並使用樣式避免換行
             st.markdown(f'<div class="position-row-text position-nowrap {direction_style}">{row["方向"]} {row["口數"]} 口</div>', unsafe_allow_html=True)
             
         with c_entry:
-            # 💥 關鍵修正：確保成交價強制不換行，並靠右對齊
+            # 關鍵修正：確保成交價強制不換行，並靠右對齊
             st.markdown(f'<div class="position-row-text position-nowrap" style="text-align: right;">{row["成交價"]:,.2f}</div>', unsafe_allow_html=True)
 
         with c_delete:
-            # 💥 關鍵：使用唯一的 key，點擊後觸發刪除操作
+            # 關鍵：使用唯一的 key，點擊後觸發刪除操作
             if st.button("移除", key=f"delete_btn_{index}", type="secondary", use_container_width=True):
                 # 執行刪除操作 (使用索引刪除，不會錯亂)
                 st.session_state.positions = st.session_state.positions.drop(index).reset_index(drop=True)
@@ -446,7 +448,8 @@ else:
     
     current_indices = positions_df.index.tolist()
     
-    with st.expander("✏️ 編輯單列倉位"):
+    # 💥 修正：將 expender 標籤文字從 emoji 改為純文字，確保穩定性
+    with st.expander("編輯單列倉位"):
         
         col_idx, col_load = st.columns([1,2])
         
