@@ -4,7 +4,8 @@ import numpy as np
 import json
 import os
 import matplotlib.pyplot as plt
-from matplotlib import rcParams
+# 引入 font_manager 確保字體路徑正確
+from matplotlib import rcParams, font_manager
 import requests 
 import time 
 import yfinance as yf 
@@ -12,8 +13,20 @@ from datetime import date, timedelta
 from scipy.stats import norm 
 
 # ======== 修正中文亂碼 (設置 Matplotlib 字體，包含標楷體備用) ========
-rcParams['font.sans-serif'] = ['Microsoft JhengHei', 'DFKai-SB', 'BiauKai']
-rcParams['axes.unicode_minus'] = False
+# 嘗試尋找並使用微軟正黑體、標楷體或其他常用的中文字體，以提高成功率
+chinese_fonts = ['Microsoft JhengHei', 'DFKai-SB', 'BiauKai', 'Arial Unicode MS']
+font_found = False
+for font in chinese_fonts:
+    if font in font_manager.findSystemFonts(fontpaths=None, fontext='ttf'):
+        rcParams['font.sans-serif'] = [font]
+        font_found = True
+        break
+        
+if not font_found:
+    # 如果找不到特定字體，使用預設的 sans-serif 列表
+    rcParams['font.sans-serif'] = chinese_fonts
+
+rcParams['axes.unicode_minus'] = False # 正常顯示負號
 
 # ======== 頁面設定 ========
 st.set_page_config(page_title="選擇權與微台損益模擬（即時指數版）", layout="wide")
@@ -87,13 +100,13 @@ st.markdown(
     .buy-color { color: #0b5cff; font-weight: bold; }
     .sell-color { color: #cf1322; font-weight: bold; }
     
-    /* 確保文字在 st.columns 內垂直居中 */
-    /* 由於 Streamlit 經常更新 class 名稱，使用更通用的選擇器確保間距 */
-    div[data-testid="stExpander"] .stMarkdown h3 {
-        margin-top: 0 !important; /* 防止 Expander 標題與內容重疊 */
+    /* 💥 針對 st.expander 內的元素進行精確間距調整，解決重疊問題 */
+    div[data-testid="stExpander"] {
+        margin-top: 5px; /* 確保 Expander 框體與上方標題有足夠間距 */
     }
+    /* 這是 Expander 框體內的內容區 */
     div[data-testid="stExpander"] > div:nth-child(2) {
-        padding-top: 10px; /* 為 Expander 內的內容增加頂部間距 */
+        padding-top: 10px; /* 為 Expander 內的內容增加頂部間距，避開標籤 */
     }
     </style>
     """,
@@ -601,9 +614,12 @@ if not positions_df.empty:
         ax.axhline(0, color="black", linestyle="--", linewidth=1)
         ax.axvline(center, color="gray", linestyle=":", linewidth=1)
         ax.set_xlim(center-PRICE_RANGE, center+PRICE_RANGE)
-        ax.set_xlabel("結算價")
-        ax.set_ylabel("損益金額")
-        ax.set_title(f"策略 A / 策略 B 損益曲線（價平 {center:.1f} ±{int(PRICE_RANGE)}）")
+        
+        # 💥 修正：明確設定 Matplotlib 的中文標籤
+        ax.set_xlabel("結算價", fontsize=12)
+        ax.set_ylabel("損益金額", fontsize=12)
+        ax.set_title(f"策略 A / 策略 B 損益曲線（價平 {center:.1f} ±{int(PRICE_RANGE)}）", fontsize=14)
+        
         ax.legend()
         ax.grid(True, linestyle=":", alpha=0.6)
         st.pyplot(fig)
