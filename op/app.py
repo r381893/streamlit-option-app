@@ -9,7 +9,7 @@ import requests
 import time 
 import yfinance as yf 
 from datetime import date, timedelta
-from scipy.stats import norm # <-- Black-Scholes 需要這個
+from scipy.stats import norm 
 
 # ======== 修正中文亂碼 ========
 rcParams['font.sans-serif'] = ['Microsoft JhengHei']
@@ -137,6 +137,11 @@ def black_scholes_model(S, K, T, r, sigma, option_type):
             return max(0, S - K)
         else: # P
             return max(0, K - S)
+    
+    # 避免 log(0) 或 sqrt(0)
+    S = max(1e-6, S)
+    K = max(1e-6, K)
+    T = max(1e-6, T)
     
     d1 = (np.log(S / K) + (r + 0.5 * sigma**2) * T) / (sigma * np.sqrt(T))
     d2 = d1 - sigma * np.sqrt(T)
@@ -289,28 +294,26 @@ with st.form(key="add_position_form"):
     with c3:
         new_entry = st.number_input("成交價（權利金或口數成交價）", min_value=0.0, step=0.5, value=0.0, key="new_entry")
     
-    # --- 修正重點：履約價邏輯分離 ---
+    # --- 修正重點：履約價邏輯重新建立 ---
     new_opt_type = ""
-    new_strike = ""
-    
+    new_strike = "" # 預設為空字串
+
     if new_product == "選擇權":
+        # 這裡才是正確顯示選擇權相關輸入組件的地方
         opt_col1, opt_col2 = st.columns(2)
         with opt_col1:
             new_opt_type = st.selectbox("選擇權類型", ["買權", "賣權"], key="new_opt_type")
         with opt_col2:
             strike_default = round(st.session_state.center_price / 100) * 100 
-            # 確保 number_input 的 value 是浮點數或 int
+            # 確保 value 是一個 float，並將結果賦予 new_strike
             new_strike = st.number_input("履約價", min_value=0.0, step=0.5, value=float(strike_default), key="new_strike_input") 
-    else:
-        # 如果是微台，則將履約價設置為空字串，但不顯示 number_input
-        pass 
     
     # 修正重點：新增提交按鈕
     submitted = st.form_submit_button("✅ 新增倉位 (加入持倉)", use_container_width=True)
     
     if submitted:
-        # 修正：確保 new_strike 在微台時為空字串
-        strike_value = float(new_strike) if new_product == "選擇權" else ""
+        # 修正：確保 new_strike 在微台時為空字串，在選擇權時為 float
+        strike_value = float(new_strike) if new_product == "選擇權" and new_strike != "" else ""
         
         rec = {
             "策略": new_strategy,
@@ -326,7 +329,7 @@ with st.form(key="add_position_form"):
 
 st.markdown("</div>", unsafe_allow_html=True)
 
-# ======== 持倉明細 & 編輯/刪除 (維持不變) ========
+# ======== 持倉明細 & 編輯/刪除 ========
 positions_df = st.session_state.positions.copy()
 if positions_df.empty:
     st.info("尚無任何倉位資料，請先新增或從檔案載入。")
@@ -650,7 +653,7 @@ if not positions_df.empty:
     
     
     # ---
-    ## ⏳ 選擇權時間價值分析 (新功能 - 逐日遞減)
+    ## ⏳ 選擇權時間價值分析 (逐日遞減)
     # ---
 
     st.markdown("<div class='card'>", unsafe_allow_html=True)
@@ -678,9 +681,12 @@ if not positions_df.empty:
         ) / 100.0 # 轉換為小數
         
         # 2. 結算日期輸入
+        # 確保預設值不會導致 initial_days <= 0
+        default_settle_date = date.today() + timedelta(days=5)
+        
         settle_date = st.sidebar.date_input(
             "預計結算日期 (到期日)",
-            value=date.today() + timedelta(days=5),
+            value=default_settle_date,
             min_value=date.today() + timedelta(days=1),
             key="settle_date_input",
             help="選擇您想模擬的結算日期，必須晚於今天"
@@ -720,8 +726,6 @@ if not positions_df.empty:
             if simulation_start_date < date.today():
                  simulation_start_date = date.today()
             
-            current_date = simulation_start_date
-            
             # 建立要模擬的日期範圍
             sim_dates = []
             temp_date = simulation_start_date
@@ -730,7 +734,9 @@ if not positions_df.empty:
                 if temp_date.weekday() < 5 or temp_date == settle_date: # 0-4 是週一到週五
                     sim_dates.append(temp_date)
                 temp_date += timedelta(days=1)
-
+            
+            # 初始化前一天的理論價值，用於計算每日 Theta 損耗
+            previous_total_value = None
 
             for sim_date in sim_dates:
                 
@@ -742,8 +748,9 @@ if not positions_df.empty:
                 if time_to_expiry < 0:
                     continue
                 
-                current_total_value = 0.0
-                
+                current_total_profit_loss = 0.0
+                current_total_value_sum = 0.0 # 總持倉的理論市值
+
                 for index, row in options_df.iterrows():
                     
                     K = float(row["履約價"])
@@ -754,27 +761,38 @@ if not positions_df.empty:
                     # 標的物價格 S 假設不變，為 center
                     theo_price = black_scholes_model(center, K, time_to_expiry, RISK_FREE_RATE, volatility, opt_code)
                     
-                    # 2. 累加倉位價值
-                    current_value = theo_price * row["口數"] * MULTIPLIER_OPTION
-                    
-                    # 買方損益 = 現值 - 成本; 賣方損益 = 成本 - 現值
+                    # 2. 累加倉位市值 (用來計算 Theta 每日價值差異)
+                    current_value_row = theo_price * row["口數"] * MULTIPLIER_OPTION
+                    current_total_value_sum += current_value_row # 總市值
+
+                    # 3. 計算總持倉的損益 (現值 vs 成本)
                     cost_value = row["成交價"] * row["口數"] * MULTIPLIER_OPTION
                     
                     if is_buy:
-                        profit_loss = current_value - cost_value
+                        profit_loss = current_value_row - cost_value
                     else:
-                        profit_loss = cost_value - current_value
+                        profit_loss = cost_value - current_value_row
                     
-                    current_total_value += profit_loss
+                    current_total_profit_loss += profit_loss
+                
+                # 計算每日 Theta 效應 (每日市值變化)
+                daily_theta_effect = 0.0
+                if previous_total_value is not None:
+                    # Theta 損耗 = 前一天的理論市值 - 當天的理論市值
+                    daily_theta_effect = previous_total_value - current_total_value_sum
 
                 # 該行資料 (每日彙總)
                 daily_results.append({
                     "模擬日期": sim_date.strftime("%Y-%m-%d"),
-                    "剩餘天數(T)": days_left,
-                    "年化時間(T)": f"{time_to_expiry:.4f}",
-                    "模擬結算價": f"{center:,.1f}",
-                    "總持倉理論損益(元)": current_total_value
+                    "剩餘天數": days_left,
+                    "持倉總市值": current_total_value_sum,
+                    "當日時間損耗(Theta)": daily_theta_effect,
+                    "當前總損益(現值-成本)": current_total_profit_loss
                 })
+                
+                # 更新前一天的總市值
+                previous_total_value = current_total_value_sum
+                
 
             results_df = pd.DataFrame(daily_results)
             
@@ -788,12 +806,25 @@ if not positions_df.empty:
                 elif f<0: return 'background-color: #ffe6e8; color: #cf1322; font-weight: 700;'
                 return ''
             
+            # 突出顯示 Theta 每日損耗的列
+            def color_theta(val):
+                if val > 0: return 'background-color: #fffbe6; font-weight: 700;' # 正值 (買方虧損/賣方獲利)
+                if val < 0: return 'background-color: #e6f7ff; font-weight: 700;' # 負值 (買方獲利/賣方虧損 - 除非賣方付錢)
+                return ''
+
             styled_results = results_df.style.format({
-                "總持倉理論損益(元)": "{:,.0f}",
-            }).applymap(color_pl, subset=["總持倉理論損益(元)"])
+                "持倉總市值": "{:,.0f}",
+                "當日時間損耗(Theta)": "{:,.0f}",
+                "當前總損益(現值-成本)": "{:,.0f}",
+            }).applymap(color_pl, subset=["當前總損益(現值-成本)"]).applymap(color_theta, subset=["當日時間損耗(Theta)"])
             
             st.dataframe(styled_results, use_container_width=True)
             
-            st.caption(f"表格顯示：假設指數每天都停留在 **{center:,.1f}**，波動率維持 **{volatility*100:.1f}%** 不變，隨著時間流逝到 **{settle_date.strftime('%Y-%m-%d')}** 時，您的持倉總損益理論值。")
+            st.caption(f"""
+            **說明：**
+            * **模擬結算價**：假設指數每天都停留在 **{center:,.1f}**。
+            * **當前總損益**：該日持倉的**理論現值**與您**原始成本**的損益差異。
+            * **當日時間損耗(Theta)**：前一天總市值減去當天總市值。這個值通常為正值，代表時間經過一天，持倉價值（對買方不利，對賣方有利）的自然損耗。
+            """)
 
     st.markdown("</div>", unsafe_allow_html=True)
