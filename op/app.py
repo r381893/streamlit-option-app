@@ -156,7 +156,7 @@ def load_positions(fname=POSITIONS_FILE):
         try:
             with open(fname, "r", encoding="utf-8") as f:
                 data = json.load(f)
-            # ... (其餘 load_positions 邏輯維持不變) ...
+            
             if isinstance(data, list):
                 df = pd.DataFrame(data)
                 loaded_center = None 
@@ -231,7 +231,7 @@ if st.session_state.center_price is None:
     st.session_state.center_price = st.session_state.tse_index_price
         
 # ---
-## 🗃️ 倉位管理與檔案操作 (維持不變)
+## 🗃️ 倉位管理與檔案操作
 # ---
 
 # ======== 檔案操作區 ========
@@ -289,24 +289,34 @@ with st.form(key="add_position_form"):
     with c3:
         new_entry = st.number_input("成交價（權利金或口數成交價）", min_value=0.0, step=0.5, value=0.0, key="new_entry")
     
+    # --- 修正重點：履約價邏輯分離 ---
+    new_opt_type = ""
+    new_strike = ""
+    
     if new_product == "選擇權":
         opt_col1, opt_col2 = st.columns(2)
         with opt_col1:
             new_opt_type = st.selectbox("選擇權類型", ["買權", "賣權"], key="new_opt_type")
         with opt_col2:
             strike_default = round(st.session_state.center_price / 100) * 100 
-            new_strike = st.number_input("履約價", min_value=0.0, step=0.5, value=strike_default, key="new_strike") 
+            # 確保 number_input 的 value 是浮點數或 int
+            new_strike = st.number_input("履約價", min_value=0.0, step=0.5, value=float(strike_default), key="new_strike_input") 
     else:
-        new_opt_type = ""
-        new_strike = ""
-
+        # 如果是微台，則將履約價設置為空字串，但不顯示 number_input
+        pass 
+    
+    # 修正重點：新增提交按鈕
     submitted = st.form_submit_button("✅ 新增倉位 (加入持倉)", use_container_width=True)
+    
     if submitted:
+        # 修正：確保 new_strike 在微台時為空字串
+        strike_value = float(new_strike) if new_product == "選擇權" else ""
+        
         rec = {
             "策略": new_strategy,
             "商品": new_product,
             "選擇權類型": new_opt_type if new_product == "選擇權" else "",
-            "履約價": float(new_strike) if new_product == "選擇權" else "",
+            "履約價": strike_value,
             "方向": new_direction,
             "口數": int(new_lots),
             "成交價": float(new_entry)
@@ -316,7 +326,7 @@ with st.form(key="add_position_form"):
 
 st.markdown("</div>", unsafe_allow_html=True)
 
-# ======== 持倉明細 & 編輯/刪除 ========
+# ======== 持倉明細 & 編輯/刪除 (維持不變) ========
 positions_df = st.session_state.positions.copy()
 if positions_df.empty:
     st.info("尚無任何倉位資料，請先新增或從檔案載入。")
