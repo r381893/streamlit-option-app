@@ -100,9 +100,9 @@ st.markdown(
     .buy-color { color: #0b5cff; font-weight: bold; }
     .sell-color { color: #cf1322; font-weight: bold; }
     
-    /* 💥 新增：策略 A/B 顏色塗色 */
-    .strategy-a-bg { background-color: #e6f7ff; padding: 0 4px; border-radius: 4px; font-weight: bold; } /* 淺藍色 */
-    .strategy-b-bg { background-color: #f0fff0; padding: 0 4px; border-radius: 4px; font-weight: bold; } /* 淺綠色 */
+    /* 💥 策略 A/B 顏色加深 */
+    .strategy-a-bg { background-color: #a7d9f7; padding: 0 4px; border-radius: 4px; font-weight: bold; } /* 中藍色 */
+    .strategy-b-bg { background-color: #c0f2c0; padding: 0 4px; border-radius: 4px; font-weight: bold; } /* 中綠色 */
     
     /* 💥 針對 st.expander 內的元素進行精確間距調整，解決重疊問題 */
     div[data-testid="stExpander"] {
@@ -349,7 +349,8 @@ with st.form(key="add_position_form"):
     
     with c1:
         strategy_style = "strategy-a-bg" if st.session_state.new_strategy_outside == "策略 A" else "strategy-b-bg"
-        st.markdown(f"**策略：** `<span class='{strategy_style}'>{st.session_state.new_strategy_outside}</span>`", unsafe_allow_html=True) # 應用顏色
+        # 修正：確保這裡顯示的是正確的文字，而不是 HTML 標籤
+        st.markdown(f"**策略：** <span class='{strategy_style}'>{st.session_state.new_strategy_outside}</span>", unsafe_allow_html=True) # 應用顏色
         new_direction = st.radio("方向", ["買進", "賣出"], horizontal=True, key="new_direction_inside")
         
     with c2:
@@ -776,8 +777,8 @@ if not positions_df.empty:
 
                 # 💥 優化：在明細表中，為「策略」欄位塗色
                 def color_strategy(val):
-                    if val == "策略 A": return 'background-color: #e6f7ff;'
-                    elif val == "策略 B": return 'background-color: #f0fff0;'
+                    if val == "策略 A": return 'background-color: #a7d9f7;' # 中藍色
+                    elif val == "策略 B": return 'background-color: #c0f2c0;' # 中綠色
                     return ''
                 styled_detail = styled_detail.applymap(color_strategy, subset=["策略"])
 
@@ -805,10 +806,10 @@ if not positions_df.empty:
         st.sidebar.markdown('---')
         st.sidebar.markdown('## ⏳ 選擇權估值')
         
-        # 1. 波動率輸入
+        # 1. 波動率輸入 (預設值改回 25.0)
         volatility = st.sidebar.number_input(
             "假設年化波動率 (IV, %)",
-            value=15.0,
+            value=25.0, # 恢復為 25.0
             min_value=1.0,
             max_value=100.0,
             step=1.0,
@@ -817,10 +818,10 @@ if not positions_df.empty:
             help="請輸入您對市場預期的波動率（年化百分比）"
         )
         
-        # 2. 剩餘天數輸入
+        # 2. 剩餘天數輸入 (預設值改回 30)
         days_to_expiry = st.sidebar.number_input(
             "到期剩餘天數 (T, 天)",
-            value=10,
+            value=30, # 恢復為 30
             min_value=1,
             step=1,
             key="days_input",
