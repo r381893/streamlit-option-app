@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 from matplotlib import rcParams
 import requests 
 import time 
+import yfinance as yf # <-- 【核心修正：導入 yfinance 函式庫】
 
 # ======== 修正中文亂碼 ========
 rcParams['font.sans-serif'] = ['Microsoft JhengHei']
@@ -91,38 +92,29 @@ MULTIPLIER_MICRO = 10.0
 MULTIPLIER_OPTION = 50.0
 PRICE_STEP = 100.0
 
-# ======== 網路資料抓取函式 ========
+# ======== 網路資料抓取函式 (使用 yfinance) ========
 @st.cache_data(ttl=600) # 緩存 10 分鐘，避免頻繁請求
 def get_tse_index_price(ticker="^TWII"):
     """
-    從 Yahoo Finance 獲取加權指數的最新價格
+    從 Yahoo Finance 獲取加權指數的最新價格 (透過 yfinance 函式庫)
     """
     try:
-        url = f"https://query1.finance.yahoo.com/v7/finance/quote?symbols={ticker}"
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-        }
+        tse_ticker = yf.Ticker(ticker)
+        info = tse_ticker.info
         
-        response = requests.get(url, headers=headers, timeout=10)
-        response.raise_for_status() 
-        data = response.json()
+        price = info.get('regularMarketPrice')
         
-        if data and 'quoteResponse' in data and 'result' in data['quoteResponse']:
-            result = data['quoteResponse']['result']
-            if result:
-                price = result[0].get('regularMarketPrice')
-                if price is not None:
-                    return float(price)
-                return float(result[0].get('regularMarketPreviousClose', 0.0))
+        if price is None:
+            price = info.get('regularMarketPreviousClose')
+
+        if price and price > 1000:
+            return float(price)
         
-        st.warning(f"⚠️ 無法解析 {ticker} 價格資料，將使用備用值。", icon="⚠️")
+        st.warning(f"⚠️ 無法從 {ticker} 獲取有效價格，將使用備用值。", icon="⚠️")
         return None
         
-    except requests.exceptions.RequestException as e:
-        st.error(f"❌ 網路請求失敗，無法抓取指數價格：{e}", icon="❌")
-        return None
     except Exception as e:
-        st.error(f"❌ 處理指數價格時發生錯誤：{e}", icon="❌")
+        st.error(f"❌ 透過 yfinance 抓取指數價格失敗：{e}", icon="❌")
         return None
 
 # ======== 載入與儲存函式 (支援儲存 Center Price) ========
@@ -574,10 +566,9 @@ if not positions_df.empty:
             total_profit_tp = target_df[target_df['到價']==tp]['總損益'].iloc[0]
             st_class = "color: #0b5cff;" if total_profit_tp > 0 else "color: #cf1322;"
             
-            # 修正後的 expader 標題 (只用純文字，移除 HTML/CSS)
+            # 使用純文字作為 st.expander 標籤，避免 TypeError
             expander_label = f"🔍 到價 {tp:,.1f} — 總損益：{total_profit_tp:,.0f} (點擊展開)"
             
-            # 使用 st.expander 
             with st.expander(expander_label, expanded=False): 
                 
                 # 在展開區塊內，使用 st.markdown 顯示美化後的標題
