@@ -7,7 +7,9 @@ import matplotlib.pyplot as plt
 from matplotlib import rcParams
 import requests 
 import time 
-import yfinance as yf # <-- 【核心修正：導入 yfinance 函式庫】
+import yfinance as yf 
+from datetime import date, timedelta
+from scipy.stats import norm # <-- Black-Scholes 需要這個
 
 # ======== 修正中文亂碼 ========
 rcParams['font.sans-serif'] = ['Microsoft JhengHei']
@@ -91,6 +93,7 @@ POSITIONS_FILE = "positions_store.json"
 MULTIPLIER_MICRO = 10.0
 MULTIPLIER_OPTION = 50.0
 PRICE_STEP = 100.0
+RISK_FREE_RATE = 0.015 # 預設無風險利率 (年化 1.5%)
 
 # ======== 網路資料抓取函式 (使用 yfinance) ========
 @st.cache_data(ttl=600) # 緩存 10 分鐘，避免頻繁請求
@@ -117,13 +120,43 @@ def get_tse_index_price(ticker="^TWII"):
         st.error(f"❌ 透過 yfinance 抓取指數價格失敗：{e}", icon="❌")
         return None
 
-# ======== 載入與儲存函式 (支援儲存 Center Price) ========
+# ======== Black-Scholes 模型函式 ========
+def black_scholes_model(S, K, T, r, sigma, option_type):
+    """
+    Black-Scholes 模型計算選擇權理論價格
+    S: 標的物價格 (Center Price)
+    K: 履約價
+    T: 剩餘時間 (年化, 例如 5/365)
+    r: 無風險利率 (年化)
+    sigma: 波動率 (年化)
+    option_type: 'C' (Call 買權) 或 'P' (Put 賣權)
+    """
+    if T <= 0:
+        # 到期日，時間價值為 0
+        if option_type == 'C':
+            return max(0, S - K)
+        else: # P
+            return max(0, K - S)
+    
+    d1 = (np.log(S / K) + (r + 0.5 * sigma**2) * T) / (sigma * np.sqrt(T))
+    d2 = d1 - sigma * np.sqrt(T)
+    
+    if option_type == 'C':
+        price = S * norm.cdf(d1) - K * np.exp(-r * T) * norm.cdf(d2)
+    elif option_type == 'P':
+        price = K * np.exp(-r * T) * norm.cdf(-d2) - S * norm.cdf(-d1)
+    else:
+        return 0.0
+    
+    return price
+
+# ======== 載入與儲存函式 (維持不變) ========
 def load_positions(fname=POSITIONS_FILE):
     if os.path.exists(fname):
         try:
             with open(fname, "r", encoding="utf-8") as f:
                 data = json.load(f)
-            
+            # ... (其餘 load_positions 邏輯維持不變) ...
             if isinstance(data, list):
                 df = pd.DataFrame(data)
                 loaded_center = None 
@@ -198,7 +231,7 @@ if st.session_state.center_price is None:
     st.session_state.center_price = st.session_state.tse_index_price
         
 # ---
-## 🗃️ 倉位管理與檔案操作
+## 🗃️ 倉位管理與檔案操作 (維持不變)
 # ---
 
 # ======== 檔案操作區 ========
@@ -497,7 +530,7 @@ if not positions_df.empty:
     st.markdown("</div>", unsafe_allow_html=True)
 
 
-    # ======== 到價損益 ========
+    # ======== 到價損益 (維持不變) ========
     st.markdown("<div class='card'>", unsafe_allow_html=True)
     st.markdown('<div class="section-title">🎯 到價損益分析</div>', unsafe_allow_html=True)
     
@@ -602,5 +635,146 @@ if not positions_df.empty:
                 st.dataframe(styled_detail, use_container_width=True)
     else:
         st.markdown("<div class='small-muted' style='margin-top:8px'>尚未設定到價，請新增到價以查看到價損益。</div>", unsafe_allow_html=True)
+
+    st.markdown("</div>", unsafe_allow_html=True)
+    
+    
+    # ---
+    ## ⏳ 選擇權時間價值分析 (新功能)
+    # ---
+
+    st.markdown("<div class='card'>", unsafe_allow_html=True)
+    st.markdown('<div class="section-title">⏳ 選擇權時間價值分析</div>', unsafe_allow_html=True)
+    
+    # 篩選出所有選擇權倉位
+    options_df = positions_df[positions_df["商品"] == "選擇權"].copy().reset_index(drop=True)
+    
+    if options_df.empty:
+        st.info("目前無選擇權倉位，此功能僅適用於選擇權。")
+    else:
+        st.sidebar.markdown('---')
+        st.sidebar.markdown('## ⏳ 選擇權估值')
+        
+        # 1. 波動率輸入
+        volatility = st.sidebar.number_input(
+            "假設年化波動率 (IV, %)", 
+            value=15.0, 
+            min_value=1.0, 
+            max_value=100.0, 
+            step=1.0,
+            format="%.1f",
+            help="請輸入您對市場預期的波動率百分比 (例如 15 表示 15%)"
+        ) / 100.0 # 轉換為小數
+        
+        # 2. 結算日期輸入
+        settle_date = st.sidebar.date_input(
+            "預計結算日期 (到期日)",
+            value=date.today() + timedelta(days=5),
+            min_value=date.today() + timedelta(days=1),
+            help="選擇您想模擬的結算日期，必須晚於今天"
+        )
+        
+        # 3. 剩餘天數計算
+        days_to_expiry = (settle_date - date.today()).days
+        time_to_expiry = days_to_expiry / 365.0
+        
+        st.sidebar.markdown(f"""
+        <div style='font-size:14px; margin-top: 15px;'>
+            <p><b>剩餘天數 (T):</b> <span style="color:#cf1322; font-weight:700;">{days_to_expiry} 天</span></p>
+            <p><b>年化時間 (T):</b> <span style="color:#cf1322; font-weight:700;">{time_to_expiry:.4f} 年</span></p>
+            <p><b>假設 IV (σ):</b> <span style="color:#0b5cff; font-weight:700;">{volatility*100:.1f} %</span></p>
+            <p><b>無風險利率 (r):</b> <span style="color:#2aa84f; font-weight:700;">{RISK_FREE_RATE*100:.1f} %</span></p>
+        </div>
+        """, unsafe_allow_html=True)
+
+        if days_to_expiry <= 0:
+            st.warning("⚠️ 預計結算日期必須晚於今天。", icon="⚠️")
+        else:
+            
+            results = []
+            total_theta_value = 0.0
+
+            for index, row in options_df.iterrows():
+                
+                # 獲取 Black-Scholes 參數
+                K = float(row["履約價"])
+                opt_code = 'C' if row["選擇權類型"] == '買權' else 'P'
+                is_buy = row["方向"] == "買進"
+                
+                # 1. 計算理論價
+                theo_price = black_scholes_model(center, K, time_to_expiry, RISK_FREE_RATE, volatility, opt_code)
+                
+                # 2. 計算內含價值
+                if opt_code == 'C':
+                    intrinsic_value = max(0.0, center - K)
+                else:
+                    intrinsic_value = max(0.0, K - center)
+                    
+                # 3. 計算時間價值
+                time_value = max(0.0, theo_price - intrinsic_value)
+                
+                # 4. 計算時間價值流失帶來的損益 (Theta)
+                # 權利金損失 = (原始成交價 - 理論價) * 口數 * 乘數
+                # 買方：權利金變低是虧損；賣方：權利金變低是利潤
+                
+                original_value = row["成交價"] * row["口數"] * MULTIPLIER_OPTION
+                current_theo_value = theo_price * row["口數"] * MULTIPLIER_OPTION
+
+                # 選擇權存續價值變化 (點數)
+                value_change_pts = theo_price - row["成交價"] 
+                
+                # 總損益 = (期末價值 - 原始價值)
+                # 對買方來說: (新價 - 舊價) > 0 是賺 / < 0 是賠
+                # 對賣方來說: (舊價 - 新價) > 0 是賺 / < 0 是賠
+                if is_buy:
+                    profit_loss = (theo_price - row["成交價"]) * row["口數"] * MULTIPLIER_OPTION
+                else: # 賣方
+                    profit_loss = (row["成交價"] - theo_price) * row["口數"] * MULTIPLIER_OPTION
+
+                
+                results.append({
+                    "策略": row["策略"],
+                    "履約價": K,
+                    "類型": f'{row["選擇權類型"]} ({row["方向"]})',
+                    "口數": row["口數"],
+                    "成交價(點)": row["成交價"],
+                    "理論價(點)": theo_price,
+                    "內含價值(點)": intrinsic_value,
+                    "時間價值(點)": time_value,
+                    "價值變化(點)": value_change_pts,
+                    "剩餘價值損益(元)": profit_loss
+                })
+                total_theta_value += profit_loss
+
+            results_df = pd.DataFrame(results)
+
+            st.markdown(f"**模擬結算價: {center:,.1f}** (與損益曲線中心價相同)")
+            
+            # 總損益高亮
+            total_style = "color: #0b5cff; font-size: 20px; font-weight: 700;" if total_theta_value > 0 else "color: #cf1322; font-size: 20px; font-weight: 700;"
+            st.markdown(f"#### 預期總損益 (含時間價值流失)：<span style='{total_style}'>{total_theta_value:,.0f} 元</span>", unsafe_allow_html=True)
+            st.caption(f"此損益是假設 **{settle_date}** 結算時，指數停留在 **{center:,.1f}** 且波動率為 **{volatility*100:.1f}%** 時，相比原始成交價計算出的價值變化。")
+            
+            # 格式化表格
+            def color_pl(val):
+                try: f=float(val)
+                except: return ''
+                if f>0: return 'color: #0b5cff; font-weight: bold;'
+                elif f<0: return 'color: #cf1322; font-weight: bold;'
+                return ''
+            
+            styled_results = results_df.style.format({
+                "履約價": "{:,.1f}",
+                "成交價(點)": "{:,.2f}",
+                "理論價(點)": "{:,.2f}",
+                "內含價值(點)": "{:,.2f}",
+                "時間價值(點)": "{:,.2f}",
+                "價值變化(點)": "{:,.2f}",
+                "剩餘價值損益(元)": "{:,.0f}"
+            }).applymap(color_pl, subset=["剩餘價值損益(元)"])
+            
+            st.dataframe(styled_results, use_container_width=True)
+            
+            st.caption("🚨 **風險提示:** 這是基於 Black-Scholes 模型和您輸入的 **假設波動率** 計算的**理論值**，實際市場價值會隨真實波動率、利率、股利、及市場情緒而有巨大差異。")
 
     st.markdown("</div>", unsafe_allow_html=True)
