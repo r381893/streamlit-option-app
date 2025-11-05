@@ -11,17 +11,22 @@ import yfinance as yf
 from datetime import date, timedelta
 from scipy.stats import norm 
 
-# ======== 修正中文亂碼 ========
-rcParams['font.sans-serif'] = ['Microsoft JhengHei']
+# ======== 修正中文亂碼 (設置 Matplotlib 字體，包含標楷體備用) ========
+rcParams['font.sans-serif'] = ['Microsoft JhengHei', 'DFKai-SB', 'BiauKai']
 rcParams['axes.unicode_minus'] = False
 
 # ======== 頁面設定 ========
 st.set_page_config(page_title="選擇權與微台損益模擬（即時指數版）", layout="wide")
 
-# ======== CSS 樣式（美化） ========
+# ======== CSS 樣式（美化與字體調整） ========
 st.markdown(
     """
     <style>
+    /* 💥 核心修改：將整體字體替換為標楷體 (或備用中文字體) */
+    html, body, .stApp, .stApp * {
+        font-family: 'DFKai-SB', 'BiauKai', 'Microsoft JhengHei', sans-serif !important;
+    }
+    
     :root {
         --card-bg: #ffffff;
         --page-bg: #f3f6fb;
@@ -85,11 +90,21 @@ st.markdown(
         border-bottom: 1px dashed #e0e0e0;
         font-size: 14px;
     }
-    /* 調整寬度比例，給細節和口數更多空間 */
+    /* 調整寬度比例：策略(10%) 細節(50%) 方向/口數(15%) 成交價(15%) 操作(10%) */
     .col-strategy { width: 10%; font-weight: bold; color: #04335a; padding-left: 5px; }
-    .col-details { width: 50%; } /* 增加細節空間 */
-    .col-lots { width: 15%; text-align: left; font-weight: bold; } /* 增加方向/口數空間 */
-    .col-entry { width: 15%; text-align: right; color: #555; } /* 增加成交價空間 */
+    .col-details { width: 50%; } 
+    .col-lots { 
+        width: 15%; 
+        text-align: left; 
+        font-weight: bold; 
+        white-space: nowrap; /* 避免方向/口數換行 */
+    } 
+    .col-entry { 
+        width: 15%; 
+        text-align: right; 
+        color: #555; 
+        white-space: nowrap; /* 避免成交價換行 */
+    } 
     .col-delete { width: 10%; text-align: right; }
     .buy-color { color: #0b5cff; }
     .sell-color { color: #cf1322; }
@@ -392,7 +407,8 @@ else:
     st.markdown('<div class="section-title">📋 現有持倉明細與快速移除</div>', unsafe_allow_html=True)
     
     # 標題行 (使用 st.columns 模擬標題，與下方內容對齊)
-    c_strat_h, c_details_h, c_lots_h, c_entry_h, c_delete_h = st.columns([1, 5, 1.5, 1.5, 1])
+    # 調整比例為：策略(0.8) 細節(5.2) 方向/口數(1.5) 成交價(1.5) 操作(1)
+    c_strat_h, c_details_h, c_lots_h, c_entry_h, c_delete_h = st.columns([0.8, 5.2, 1.5, 1.5, 1])
     c_strat_h.markdown("策略", unsafe_allow_html=True)
     c_details_h.markdown("細節 (索引/商品/類型/履約價)", unsafe_allow_html=True)
     c_lots_h.markdown("方向/口數", unsafe_allow_html=True)
@@ -415,7 +431,7 @@ else:
         direction_style = "buy-color" if row['方向'] == "買進" else "sell-color"
         
         # 3. 使用 st.columns 創建互動式佈局 (與標題行比例保持一致)
-        c_strat, c_details, c_lots, c_entry, c_delete = st.columns([1, 5, 1.5, 1.5, 1])
+        c_strat, c_details, c_lots, c_entry, c_delete = st.columns([0.8, 5.2, 1.5, 1.5, 1])
 
         # 使用自定義的 CSS class 來控制垂直對齊
         with c_strat:
@@ -426,9 +442,11 @@ else:
             
         with c_lots:
             # 使用 HTML 標記來控制方向和口數的樣式
+            # 依賴 CSS 樣式中的 white-space: nowrap 來防止換行
             st.markdown(f'<div class="col-lots {direction_style}">{row["方向"]} {row["口數"]} 口</div>', unsafe_allow_html=True)
             
         with c_entry:
+            # 依賴 CSS 樣式中的 white-space: nowrap 來防止換行
             st.markdown(f'<div class="col-entry" style="text-align: right;">{row["成交價"]:,.2f}</div>', unsafe_allow_html=True)
 
         with c_delete:
