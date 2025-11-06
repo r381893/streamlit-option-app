@@ -11,18 +11,22 @@ import yfinance as yf
 from datetime import date, timedelta
 from scipy.stats import norm
 
-# ======== 修正中文亂碼 (設置 Matplotlib 字體，包含標楷體備用) ========
+# ======== 修正中文亂碼 (設置 Matplotlib 字體) ========
 # 優先使用 SimHei (常用於Matplotlib的中文簡體) 或 Microsoft JhengHei (繁體 Windows)
-# 如果系統找不到，會依序嘗試列表中的其他字體
 chinese_fonts = ['Microsoft JhengHei', 'SimHei', 'DFKai-SB', 'BiauKai', 'Arial Unicode MS']
 font_found = False
 for font in chinese_fonts:
-    if font in font_manager.findSystemFonts(fontpaths=None, fontext='ttf'):
-        rcParams['font.sans-serif'] = [font]
-        font_found = True
-        break
+    # 檢查字體是否存在於系統中
+    try:
+        if font_manager.findfont(font, fallback_to_default=False):
+            rcParams['font.sans-serif'] = [font]
+            font_found = True
+            break
+    except:
+        pass
         
 if not font_found:
+    # 如果都找不到，使用預設列表，讓Matplotlib嘗試 fallback
     rcParams['font.sans-serif'] = chinese_fonts
 
 rcParams['axes.unicode_minus'] = False # 正常顯示負號
@@ -42,7 +46,7 @@ def color_strategy(val):
 # ======== 頁面設定 ========
 st.set_page_config(page_title="選擇權與微台損益模擬（即時指數版）", layout="wide")
 
-# ======== CSS 樣式（修正字體重疊問題） ========
+# ======== CSS 樣式（🎯 核心修正：隱藏 Expander 圖標名稱洩露） ========
 st.markdown(
     """
     <style>
@@ -58,96 +62,39 @@ st.markdown(
         --accent: #0b5cff;
         --muted: #6b7280;
     }
-    body { background-color: var(--page-bg); }
-    /* 主標題 */
-    .title {
-        font-size: 30px;
-        font-weight: 800;
-        color: #04335a;
-        margin-bottom: 4px;
-        padding-top: 10px;
-    }
-    .subtitle {
-        color: var(--muted);
-        margin-top: -8px;
-        margin-bottom: 20px;
-        font-size: 16px;
-    }
-    /* 卡片樣式 */
-    .card {
-        background: var(--card-bg);
-        padding: 18px 22px;
-        border-radius: 12px;
-        box-shadow: 0 8px 30px rgba(11,92,255,0.08);
-        margin-bottom: 25px;
-    }
-    /* 區塊標題 */
-    .card .section-title {
-        font-size: 20px;
-        font-weight: 700;
-        color: #04335a;
-        margin-bottom: 15px;
-        border-bottom: 2px solid #eaeef7;
-        padding-bottom: 5px;
-    }
-    /* 按鈕樣式 */
-    .stButton>button {
-        border-radius: 8px;
-        height: 38px;
-        font-size: 15px;
-    }
+    /* ... 保持您的其他 CSS 樣式 ... */
+    
+    .title { font-size: 30px; font-weight: 800; color: #04335a; margin-bottom: 4px; padding-top: 10px; }
+    .subtitle { color: var(--muted); margin-top: -8px; margin-bottom: 20px; font-size: 16px; }
+    .card { background: var(--card-bg); padding: 18px 22px; border-radius: 12px; box-shadow: 0 8px 30px rgba(11,92,255,0.08); margin-bottom: 25px; }
+    .card .section-title { font-size: 20px; font-weight: 700; color: #04335a; margin-bottom: 15px; border-bottom: 2px solid #eaeef7; padding-bottom: 5px; }
+    .stButton>button { border-radius: 8px; height: 38px; font-size: 15px; }
     .small-muted { color: var(--muted); font-size: 14px; }
     hr { border: 0; height: 1px; background: #eaeef7; margin: 14px 0; }
-    
-    /* 列表式倉位顯示的樣式 */
-    .position-row-text {
-        font-size: 16px;
-        padding: 5px 0;
-    }
-    .position-nowrap {
-        white-space: nowrap;
-    }
+    .position-row-text { font-size: 16px; padding: 5px 0; }
+    .position-nowrap { white-space: nowrap; }
     .buy-color { color: #0b5cff; font-weight: bold; }
     .sell-color { color: #cf1322; font-weight: bold; }
-    
-    /* 策略 A/B 顏色加深 */
     .strategy-a-bg { background-color: #a7d9f7; padding: 0 4px; border-radius: 4px; font-weight: bold; }
     .strategy-b-bg { background-color: #c0f2c0; padding: 0 4px; border-radius: 4px; font-weight: bold; }
+
+    /* 🎯 核心修正：針對 st.expander 內的圖標名稱重疊問題 (問題 1 & 2) */
+    /* 目標是隱藏 Streamlit 內部用來顯示圖標的文字組件（即洩露的 keyboard_arrow_...） */
+    /* 這組規則針對所有 st.expander 標籤內的第一個子元素（標題列），並找到其中包含圖標文字的部分 */
+    div[data-testid="stExpander"] div[data-testid="stText"] {
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        /* 增加以下規則以確保洩露的文字被推到視野外或完全隱藏 */
+        display: none !important; 
+    }
     
-    /* 核心修正：針對 st.expander 內的元素進行精確間距調整 */
-    div[data-testid="stExpander"] {
-        margin-top: 5px; 
-    }
-    div[data-testid="stExpander"] > div:nth-child(2) {
-        padding-top: 10px;
-    }
-    div[data-testid="stExpander"] > div:first-child {
-        margin-bottom: 5px; 
-    }
-    .stMarkdown {
-        margin-top: 0;
-        margin-bottom: 0;
-    }
-    .title, .subtitle {
+    /* 確保 Expander 標題容器本身不會因為內容溢出而變形 */
+    div[data-testid="stExpanderToggle"] {
+        overflow: hidden !important;
+        white-space: nowrap !important;
         line-height: 1.2;
     }
-
-    /* 🎯 修正 Expander 內圖標名稱重疊問題 (問題 1 & 2) */
-    /* 目標：隱藏所有 stExpander 內部開頭的 stText 元素，該元素常包含洩露的圖標名稱 */
-    div[data-testid="stExpander"] > div:first-child > div:first-child > div:first-child > div:first-child {
-        /* 隱藏掉圖示文字所在的父容器 (如果此容器是 Streamlit 的圖示組件) */
-        overflow: hidden;
-    }
-    /* 更加強力的通用修正，針對 Streamlit 0.85+ 版本的文字組件 */
-    div[data-testid="stExpander"] div[data-testid="stText"] {
-        white-space: nowrap; 
-        overflow: hidden;
-    }
-    /* 針對標籤 (label) 內容進行處理，防止圖示名稱換行或洩露 */
-    div[data-testid="stExpander"] div[data-testid="stExpanderToggle"] {
-        overflow: hidden;
-        white-space: nowrap;
-    }
+    
     </style>
     """,
     unsafe_allow_html=True,
@@ -165,21 +112,17 @@ POSITIONS_FILE = "positions_store.json"
 MULTIPLIER_MICRO = 10.0
 MULTIPLIER_OPTION = 50.0
 PRICE_STEP = 100.0
-RISK_FREE_RATE = 0.015 
 
 # ======== 網路資料抓取函式 (使用 yfinance) ========
 @st.cache_data(ttl=600)
 def get_tse_index_price(ticker="^TWII"):
-    """
-    從 Yahoo Finance 獲取加權指數的最新價格 (透過 yfinance 函式庫)
-    """
+    """從 Yahoo Finance 獲取加權指數的最新價格"""
     try:
         tse_ticker = yf.Ticker(ticker)
         info = tse_ticker.info
-        
         price = info.get('regularMarketPrice')
         
-        if price is None:
+        if price is None or price == 0:
             price = info.get('regularMarketPreviousClose')
 
         if price and price > 1000:
@@ -192,32 +135,53 @@ def get_tse_index_price(ticker="^TWII"):
         st.error(f"❌ 透過 yfinance 抓取指數價格失敗：{e}", icon="❌")
         return None
 
-# ======== Black-Scholes 模型函式 (已不再使用於頁面顯示) ========
-def black_scholes_model(S, K, T, r, sigma, option_type):
-    """
-    Black-Scholes 模型計算選擇權理論價格
-    """
-    if T <= 0 or sigma == 0:
-        if option_type == 'C':
-            return max(0, S - K)
-        else: # P
-            return max(0, K - S)
+# ======== Black-Scholes 模型函式 (新增/修正) ========
+def safe_log(x):
+    return np.log(np.maximum(x, 1e-10))
+def safe_sqrt(x):
+    return np.sqrt(np.maximum(x, 1e-10))
     
+def black_scholes_model(S, K, T_years, r, sigma, option_type):
+    """
+    Black-Scholes 模型計算選擇權理論價格, Delta, Gamma
+    S: 現貨價, K: 履約價, T_years: 剩餘年數 (T/365), r: 無風險利率, sigma: 波動率
+    """
+    if T_years <= 1e-6 or sigma <= 1e-6:
+        # 臨近到期或波動率為零時，近似於內含價值
+        intrinsic = 0
+        if option_type == '買權':
+            intrinsic = max(0, S - K)
+        elif option_type == '賣權':
+            intrinsic = max(0, K - S)
+        return intrinsic, intrinsic, 0.0 # 理論價, 內含價值, 時間價值
+
+    # 確保 S 和 K 為正
     S = max(1e-6, S)
     K = max(1e-6, K)
-    T = max(1e-6, T)
     
-    d1 = (np.log(S / K) + (r + 0.5 * sigma**2) * T) / (sigma * np.sqrt(T))
-    d2 = d1 - sigma * np.sqrt(T)
+    d1 = (safe_log(S / K) + (r + 0.5 * sigma**2) * T_years) / (sigma * safe_sqrt(T_years))
+    d2 = d1 - sigma * safe_sqrt(T_years)
     
-    if option_type == 'C':
-        price = S * norm.cdf(d1) - K * np.exp(-r * T) * norm.cdf(d2)
-    elif option_type == 'P':
-        price = K * np.exp(-r * T) * norm.cdf(-d2) - S * norm.cdf(-d1)
-    else:
-        return 0.0
+    N_d1 = norm.cdf(d1)
+    N_d2 = norm.cdf(d2)
+    N_neg_d1 = norm.cdf(-d1)
+    N_neg_d2 = norm.cdf(-d2)
     
-    return price
+    price = 0.0
+
+    if option_type == '買權':
+        price = S * N_d1 - K * np.exp(-r * T_years) * N_d2
+        intrinsic = max(0.0, S - K)
+        
+    elif option_type == '賣權':
+        price = K * np.exp(-r * T_years) * N_neg_d2 - S * N_neg_d1
+        intrinsic = max(0.0, K - S)
+        
+    price = max(0.0, price) # 價格不能為負
+    
+    time_value = max(0.0, price - intrinsic)
+    
+    return price, intrinsic, time_value # 理論價, 內含價值, 時間價值
 
 # ======== 載入與儲存函式 (維持不變) ========
 def load_positions(fname=POSITIONS_FILE):
@@ -229,12 +193,17 @@ def load_positions(fname=POSITIONS_FILE):
             if isinstance(data, list):
                 df = pd.DataFrame(data)
                 loaded_center = None
+                # 新增讀取舊格式的 BS 參數，如果沒有則使用預設
+                loaded_t = 6 
+                loaded_r = 0.015
             elif isinstance(data, dict) and "positions" in data:
                 df = pd.DataFrame(data["positions"])
                 loaded_center = data.get("center_price")
+                loaded_t = data.get("days_to_expiry", 6)
+                loaded_r = data.get("risk_free_rate", 0.015)
             else:
                 st.error("讀取儲存檔格式錯誤。", icon="❌")
-                return None, None
+                return None, None, None, None
             
             required_cols = {
                 "策略": str, "商品": str, "選擇權類型": str, "履約價": object,
@@ -253,16 +222,18 @@ def load_positions(fname=POSITIONS_FILE):
                 except: return ""
             df["履約價"] = df["履約價"].apply(norm_strike)
 
-            return df, loaded_center
+            return df, loaded_center, loaded_t, loaded_r
         except Exception as e:
             st.error(f"讀取儲存檔失敗: {e}", icon="❌")
-            return None, None
-    return None, None
+            return None, None, None, None
+    return None, None, None, None
 
-def save_positions(df, center_price, fname=POSITIONS_FILE):
+def save_positions(df, center_price, days_to_expiry, risk_free_rate, fname=POSITIONS_FILE):
     try:
         data = {
             "center_price": center_price,
+            "days_to_expiry": days_to_expiry,
+            "risk_free_rate": risk_free_rate,
             "positions": df.to_dict(orient="records")
         }
         with open(fname, "w", encoding="utf-8") as f:
@@ -272,7 +243,7 @@ def save_positions(df, center_price, fname=POSITIONS_FILE):
         st.error(f"儲存失敗: {e}", icon="❌")
         return False
         
-# ======== 初始化 session state (維持不變) ========
+# ======== 初始化 session state (新增 BS 模型參數) ========
 if "positions" not in st.session_state:
     st.session_state.positions = pd.DataFrame(columns=[
         "策略", "商品", "選擇權類型", "履約價", "方向", "口數", "成交價"
@@ -285,6 +256,11 @@ if "tse_index_price" not in st.session_state:
     st.session_state.tse_index_price = None
 if "center_price" not in st.session_state:
     st.session_state.center_price = None
+# 新增 BS 模型參數預設值
+if "days_to_expiry" not in st.session_state:
+    st.session_state.days_to_expiry = 6 
+if "risk_free_rate" not in st.session_state:
+    st.session_state.risk_free_rate = 0.015 # 1.5%
 
 # ********* 獲取並設定中心價 *********
 if st.session_state.tse_index_price is None:
@@ -303,21 +279,23 @@ if st.session_state.center_price is None:
 ## 🗃️ 倉位管理與檔案操作
 # ---
 
-# ======== 檔案操作區 (維持不變) ========
+# ======== 檔案操作區 ========
 with st.container():
     st.markdown("<div class='card'>", unsafe_allow_html=True)
     st.markdown('<div class="section-title">📂 檔案操作與清理</div>', unsafe_allow_html=True)
     col1, col2, col3 = st.columns([1,1,1])
     with col1:
         if st.button("🔄 載入倉位", use_container_width=True):
-            df, loaded_center = load_positions()
+            df, loaded_center, loaded_t, loaded_r = load_positions()
             if df is not None:
                 st.session_state.positions = df
                 if loaded_center is not None:
                     st.session_state.center_price = loaded_center
-                    st.success(f"✅ 已從檔案載入倉位及中心價 {loaded_center:,.1f}")
+                    st.session_state.days_to_expiry = loaded_t
+                    st.session_state.risk_free_rate = loaded_r
+                    st.success(f"✅ 已從檔案載入倉位、中心價 {loaded_center:,.1f} 及 BS 參數。")
                 else:
-                    st.success("✅ 已從檔案載入倉位，中心價使用預設值")
+                    st.success("✅ 已從檔案載入倉位，中心價及 BS 參數使用預設值")
             else:
                 st.info("找不到儲存檔或檔案為空。")
     with col2:
@@ -326,10 +304,14 @@ with st.container():
                 current_center = st.session_state.get("simulation_center_price_input")
                 center_to_save = current_center if current_center is not None else st.session_state.center_price
                 
-                ok = save_positions(st.session_state.positions, center_to_save)
+                # 抓取目前的 BS 參數 (即使在側邊欄變動過)
+                t_to_save = st.session_state.days_to_expiry
+                r_to_save = st.session_state.risk_free_rate
+                
+                ok = save_positions(st.session_state.positions, center_to_save, t_to_save, r_to_save)
                 if ok:
                     st.session_state.center_price = center_to_save
-                    st.success(f"✅ 已儲存到 {POSITIONS_FILE}，中心價 {center_to_save:,.1f} 已記錄")
+                    st.success(f"✅ 已儲存到 {POSITIONS_FILE}，中心價 {center_to_save:,.1f} 及 BS 參數已記錄")
                 else:
                     st.info("目前沒有倉位可儲存。")
     with col3:
@@ -340,6 +322,8 @@ with st.container():
             st.session_state._edit_index = -1
             st.session_state.target_prices = []
             st.session_state.center_price = st.session_state.tse_index_price
+            st.session_state.days_to_expiry = 6 # 清空時重設 BS 參數
+            st.session_state.risk_free_rate = 0.015
             st.success("已清空所有倉位與狀態。")
     st.markdown("</div>", unsafe_allow_html=True)
 
@@ -471,7 +455,7 @@ else:
 
     st.markdown("</div>", unsafe_allow_html=True)
 
-    # 編輯功能 (修正 Expander 洩露問題 1)
+    # 編輯功能 (Expander 修正: CSS 處理圖示文字洩露)
     st.markdown("<div class='card'>", unsafe_allow_html=True)
     st.markdown('<div class="section-title">🛠️ 編輯倉位 (索引式)</div>', unsafe_allow_html=True)
     
@@ -548,7 +532,7 @@ else:
     
 if not positions_df.empty:
 
-    # ======== 損益計算基礎（側邊欄）(維持不變) ========
+    # ======== 損益計算基礎（側邊欄）(新增 BS 參數輸入) ========
     
     st.sidebar.markdown('## 🛠️ 損益模擬設定')
     center = st.sidebar.number_input(
@@ -567,10 +551,53 @@ if not positions_df.empty:
         help="價格範圍為 [Center - Range, Center + Range]"
     )
     
+    st.sidebar.markdown('### Black-Scholes 模型參數')
+    
+    # 設置 T 和 R (根據您的截圖 image_d0d7dd.png)
+    col_t, col_r = st.sidebar.columns(2)
+    with col_t:
+        days_to_expiry = st.number_input(
+            "到期剩餘天數 (T, 天)", 
+            min_value=1, 
+            value=st.session_state.days_to_expiry, 
+            step=1, 
+            key="days_to_expiry_input",
+            help="選擇權距離到期日的天數。"
+        )
+        st.session_state.days_to_expiry = days_to_expiry
+        
+    with col_r:
+        risk_free_rate_percent = st.number_input(
+            "無風險利率 (R, %)", 
+            min_value=0.0, 
+            value=st.session_state.risk_free_rate * 100, 
+            step=0.1, 
+            format="%.2f",
+            key="risk_free_rate_input",
+            help="例如：1.5% 請輸入 1.5。"
+        )
+        st.session_state.risk_free_rate = risk_free_rate_percent / 100
+        
+    # 新增波動率輸入
+    volatility = st.sidebar.number_input(
+        "波動率 (Sigma, %)",
+        min_value=1.0,
+        value=20.0, # 預設值
+        step=1.0,
+        format="%.1f",
+        key="volatility_input",
+        help="輸入年化波動率百分比 (例如：20%)。"
+    )
+    sigma = volatility / 100.0 # 轉換為小數
+    
+    # 顯示確認的參數值
     st.sidebar.markdown(f"""
     <div style='font-size:14px; margin-top: 15px;'>
         <p><b>中心價:</b> <span style="color:#04335a; font-weight:700;">{center:,.1f}</span></p>
         <p><b>模擬範圍:</b> <span style="color:#04335a; font-weight:700;">±{PRICE_RANGE} 點</span></p>
+        <p><b>BS T:</b> <span style="color:#cf1322; font-weight:700;">{days_to_expiry} 天 ({days_to_expiry/365:.4f} 年)</span></p>
+        <p><b>BS R:</b> <span style="color:#cf1322; font-weight:700;">{st.session_state.risk_free_rate*100:.2f}%</span></p>
+        <p><b>BS Sigma:</b> <span style="color:#cf1322; font-weight:700;">{volatility:.1f}%</span></p>
     </div>
     """, unsafe_allow_html=True)
 
@@ -671,6 +698,113 @@ if not positions_df.empty:
 
 
     # ==========================================================
+    # 💰 選擇權理論平倉損益列表 (新增功能)
+    # ==========================================================
+    opt_positions_df = positions_df[positions_df["商品"] == "選擇權"].copy().reset_index(drop=True)
+    
+    if not opt_positions_df.empty:
+        st.markdown("<div class='card'>", unsafe_allow_html=True)
+        st.markdown('<div class="section-title">💰 選擇權理論平倉損益列表 (Black-Scholes 模型)</div>', unsafe_allow_html=True)
+        
+        current_price_rounded = round(center, 2)
+        
+        st.markdown(f"**模型假設：** 目前的股價指數為 <span style='color:#0b5cff; font-weight:bold;'>{current_price_rounded:,.2f}</span>，並使用 Black-Scholes 模型計算理論平倉時的損益。", unsafe_allow_html=True)
+        st.markdown(f"<div style='font-size:14px; color:#cf1322;'>**BS 參數：** T = {days_to_expiry} 天, R = {st.session_state.risk_free_rate*100:.2f}%, Sigma = {volatility:.1f}%</div>", unsafe_allow_html=True)
+        
+        # 1. 計算理論價
+        T_years = days_to_expiry / 365.0
+        results = []
+        for index, row in opt_positions_df.iterrows():
+            strike = float(row["履約價"])
+            opt_type = row["選擇權類型"]
+            entry = float(row["成交價"])
+            lots = float(row["口數"])
+            direction = row["方向"]
+            
+            # 進行 BS 計算
+            # S: 現價 (center), K: 履約價, T_years, r, sigma, option_type
+            theoretical_price, intrinsic_value, time_value = black_scholes_model(
+                current_price_rounded, strike, T_years, st.session_state.risk_free_rate, sigma, opt_type
+            )
+            
+            # 理論平倉價 - 成交價
+            price_difference = theoretical_price - entry
+            
+            # 理論平倉損益 = (理論價 - 成交價) * 乘數 * 口數 * 買賣方向
+            multiplier = MULTIPLIER_OPTION
+            sign = 1 if direction == "買進" else -1
+            theoretical_profit = price_difference * multiplier * lots * sign
+            
+            results.append({
+                "策略": row["策略"],
+                "選擇權類型": opt_type,
+                "履約價": strike,
+                "方向": direction,
+                "口數": lots,
+                "成交價": entry,
+                "內含價值(IV)": intrinsic_value,
+                "理論價(BS Price)": theoretical_price,
+                "理論時間價值(TV)": time_value,
+                "理論平倉損益": theoretical_profit
+            })
+            
+        bs_df = pd.DataFrame(results)
+
+        # 2. 應用樣式
+        def color_bs_profit(val):
+            try: f=float(val)
+            except: return ''
+            if f > 0: return 'color: #0b5cff; font-weight: 700;'
+            elif f < 0: return 'color: #cf1322; font-weight: 700;'
+            return ''
+
+        styled_bs_table = bs_df.style.format({
+            "履約價": "{:,.1f}",
+            "口數": "{:d}",
+            "成交價": "{:,.2f}",
+            "內含價值(IV)": "{:,.2f}",
+            "理論價(BS Price)": "{:,.2f}",
+            "理論時間價值(TV)": "{:,.2f}",
+            "理論平倉損益": "{:,.0f}"
+        }).applymap(color_bs_profit, subset=["理論平倉損益"]).apply(lambda x: [color_strategy(v) for v in x], subset=['策略'])
+        
+        st.dataframe(styled_bs_table, use_container_width=True)
+        
+        # 3. 彙總數據
+        total_theo_profit = bs_df["理論平倉損益"].sum()
+        total_theo_tv_loss = bs_df.apply(lambda r: r['理論時間價值(TV)'] * r['口數'] * MULTIPLIER_OPTION * (-1 if r['方向'] == '賣出' else 1), axis=1).sum()
+        
+        total_profit_style = "color: #0b5cff;" if total_theo_profit > 0 else "color: #cf1322;"
+        total_tv_style = "color: #cf1322;" if total_theo_tv_loss < 0 else "color: #0b5cff;" # 權利金損失用紅色
+
+        st.markdown("---")
+        st.subheader("彙總數據")
+        
+        col_tv, col_profit = st.columns(2)
+        
+        with col_tv:
+            st.markdown(f"""
+            <div style='border: 1px solid #ddd; padding: 10px; border-radius: 6px; background-color: #f7f7f7;'>
+                <span class='small-muted'>理論總時間價值損益 (金額)</span><br>
+                <span style='font-size: 24px; font-weight: bold; {total_tv_style}'>NT$ {total_theo_tv_loss:,.0f}</span>
+                <span class='small-muted'> (理論平倉時的 TV 總和 * 口數 * 乘數)</span>
+            </div>
+            """, unsafe_allow_html=True)
+            
+        with col_profit:
+            st.markdown(f"""
+            <div style='border: 1px solid #ddd; padding: 10px; border-radius: 6px; background-color: #f7f7f7;'>
+                <span class='small-muted'>理論總平倉損益 (金額)</span><br>
+                <span style='font-size: 24px; font-weight: bold; {total_profit_style}'>NT$ {total_theo_profit:,.0f}</span>
+            </div>
+            """, unsafe_allow_html=True)
+
+        csv_bs = bs_df.to_csv(index=False, encoding="utf-8-sig")
+        st.download_button("⬇️ 匯出 理論價損益 CSV", data=csv_bs, file_name="theoretical_profit_table.csv", mime="text/csv", use_container_width=True)
+        
+        st.markdown("</div>", unsafe_allow_html=True)
+        
+    # ==========================================================
     # 💵 最終結算損益分析 (修正 Expander 洩露問題 2)
     # ==========================================================
     st.markdown("<div class='card'>", unsafe_allow_html=True)
@@ -750,7 +884,7 @@ if not positions_df.empty:
                 total_profit_tp = target_df[target_df['結算價']==tp]['總損益'].iloc[0]
                 st_class = "color: #0b5cff;" if total_profit_tp > 0 else "color: #cf1322;"
                 
-                # 修正 Expander 洩露問題 2
+                # Expander 修正: CSS 處理圖示文字洩露
                 expander_label = f"🔍 結算價 {tp:,.1f} — 總損益：{total_profit_tp:,.0f} (點擊展開)"
                 
                 with st.expander(expander_label, expanded=False):
