@@ -569,8 +569,10 @@ if not positions_df.empty:
         multiplier = MULTIPLIER_MICRO if prod == "微台" else MULTIPLIER_OPTION
         
         if prod == "微台":
+            # 微台損益 = (結算價 - 成交價) * 口數 * 乘數
             return (price - entry) * lots * multiplier if direction == "買進" else (entry - price) * lots * multiplier
         else:
+            # 選擇權損益 = (內含價值 @ 結算價 - 成交價) * 口數 * 乘數
             strike = float(row["履約價"]) if row["履約價"] != "" else 0.0
             opt_type = row.get("選擇權類型", "")
             
@@ -646,47 +648,59 @@ if not positions_df.empty:
     st.markdown("</div>", unsafe_allow_html=True)
 
 
-    # ======== 到價損益 (維持不變) ========
+    # ==========================================================
+    # 💵 修正後的結算損益分析 (包含微台和選擇權)
+    # ==========================================================
     st.markdown("<div class='card'>", unsafe_allow_html=True)
-    st.markdown('<div class="section-title">🎯 到價損益分析</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">💵 假設結算損益分析 (微台+選擇權)</div>', unsafe_allow_html=True)
+    st.markdown(f"""
+    <div style='font-size:14px; margin-bottom: 10px; color:#cf1322;'>
+        此計算假設**目標到價**即為**最終結算價** (時間價值歸零)，並計算所有部位的損益。
+        此為您所有部位在該價格下的**最終損益預期**。
+    </div>
+    """, unsafe_allow_html=True)
     
     col_input, col_add, col_remove = st.columns([2,1,2])
     with col_input:
-        add_price = st.number_input("輸入目標到價", value=float(center), step=0.5, key="add_price_input")
+        # 使用目前的中心價作為預設值，更符合「假設目前指數是結算價」的語境
+        add_price = st.number_input("輸入目標結算價", value=float(center), step=0.5, key="add_price_input")
     with col_add:
-        if st.button("➕ 加入到價", use_container_width=True):
+        if st.button("➕ 加入目標結算價", use_container_width=True):
             v = float(add_price)
             if v not in st.session_state.target_prices:
                 st.session_state.target_prices.append(v)
                 st.session_state.target_prices.sort(reverse=True)
-            st.toast(f"已加入到價: {v:.1f}")
+            st.toast(f"已加入目標結算價: {v:.1f}")
     with col_remove:
         if st.session_state.target_prices:
-            to_remove = st.selectbox("選擇要移除的到價", options=["無"] + [f"{p:,.1f}" for p in st.session_state.target_prices])
-            if st.button("🗑️ 移除選定到價", type="secondary", use_container_width=True):
+            to_remove = st.selectbox("選擇要移除的結算價", options=["無"] + [f"{p:,.1f}" for p in st.session_state.target_prices])
+            if st.button("🗑️ 移除選定結算價", type="secondary", use_container_width=True):
                 if to_remove != "無":
                     val = float(to_remove.replace(',', ''))
                     st.session_state.target_prices = [p for p in st.session_state.target_prices if p != val]
-                    st.toast(f"已移除到價 {val:,.1f}")
+                    st.toast(f"已移除結算價 {val:,.1f}")
     
     st.markdown("<hr>", unsafe_allow_html=True)
     
     if st.session_state.target_prices:
         rows = []
         per_position_details = {}
+        
+        # 進行計算 (使用原有的 profit_for_row_at_price 函數，它計算的就是到期結算損益)
         for tp in st.session_state.target_prices:
             a_df = positions_df[positions_df["策略"]=="策略 A"]
             b_df = positions_df[positions_df["策略"]=="策略 B"]
             a_val = a_df.apply(lambda r: profit_for_row_at_price(r, tp), axis=1).sum()
             b_val = b_df.apply(lambda r: profit_for_row_at_price(r, tp), axis=1).sum()
             total_val = a_val + b_val
-            rows.append({"到價": tp, "相對於價平(點)": int(tp-center), "策略 A 損益": a_val, "策略 B 損益": b_val, "總損益": total_val})
+            rows.append({"結算價": tp, "相對於價平(點)": int(tp-center), "策略 A 損益": a_val, "策略 B 損益": b_val, "總損益": total_val})
             
-            combined_df = pd.concat([a_df, b_df], ignore_index=True).reset_index(drop=True)
-            combined_df["到價損益"] = combined_df.apply(lambda r: profit_for_row_at_price(r, tp), axis=1)
+            # 詳情計算
+            combined_df = positions_df.copy() # 使用全部部位
+            combined_df["結算損益"] = combined_df.apply(lambda r: profit_for_row_at_price(r, tp), axis=1)
             per_position_details[tp] = combined_df
 
-        target_df = pd.DataFrame(rows).sort_values(by="到價", ascending=False).reset_index(drop=True)
+        target_df = pd.DataFrame(rows).sort_values(by="結算價", ascending=False).reset_index(drop=True)
 
         def color_target_profit(val):
             try: f=float(val)
@@ -696,32 +710,32 @@ if not positions_df.empty:
             return ''
 
         styled_target = target_df.style.format({
-            "到價": "{:,.1f}",
+            "結算價": "{:,.1f}",
             "相對於價平(點)": "{:+d}",
             "策略 A 損益": "{:,.0f}",
             "策略 B 損益": "{:,.0f}",
             "總損益": "**{:,.0f}**"
         }).applymap(color_target_profit, subset=["總損益"]).applymap(color_profit, subset=["策略 A 損益","策略 B 損益"])
         
-        st.subheader("到價總損益一覽")
+        st.subheader("🎯 目標結算價總損益一覽")
         st.dataframe(styled_target, use_container_width=True)
 
         csv2 = target_df.to_csv(index=False, encoding="utf-8-sig")
-        st.download_button("⬇️ 匯出 到價損益 CSV", data=csv2, file_name="target_profit.csv", mime="text/csv", key="download_target_csv")
+        st.download_button("⬇️ 匯出 結算損益 CSV", data=csv2, file_name="settlement_profit.csv", mime="text/csv", key="download_target_csv")
 
         st.markdown("---")
-        st.subheader("每筆倉位在目標價的損益明細")
+        st.subheader("📝 每筆倉位在目標結算價下的損益明細")
         for tp in st.session_state.target_prices:
-            total_profit_tp = target_df[target_df['到價']==tp]['總損益'].iloc[0]
+            total_profit_tp = target_df[target_df['結算價']==tp]['總損益'].iloc[0]
             st_class = "color: #0b5cff;" if total_profit_tp > 0 else "color: #cf1322;"
             
-            expander_label = f"🔍 到價 {tp:,.1f} — 總損益：{total_profit_tp:,.0f} (點擊展開)"
+            expander_label = f"🔍 結算價 {tp:,.1f} — 總損益：{total_profit_tp:,.0f} (點擊展開)"
             
             with st.expander(expander_label, expanded=False):
                 
                 st.markdown(f"""
                 <div style='margin-bottom: 10px; padding: 5px 10px; background-color: #f0f8ff; border-radius: 6px; border-left: 5px solid #0b5cff;'>
-                    <b>目標到價: {tp:,.1f}</b> / 
+                    <b>目標結算價: {tp:,.1f}</b> / 
                     <b>總損益: <span style='{st_class}'>{total_profit_tp:,.0f}</span></b>
                 </div>
                 """, unsafe_allow_html=True)
@@ -729,7 +743,7 @@ if not positions_df.empty:
                 df_detail = per_position_details[tp].copy()
                 df_detail_display = df_detail.reset_index(drop=True)
                 df_detail_display = df_detail_display[[
-                    "策略", "商品", "選擇權類型", "履約價", "方向", "口數", "成交價", "到價損益"
+                    "策略", "商品", "選擇權類型", "履約價", "方向", "口數", "成交價", "結算損益"
                 ]]
 
                 def color_detail_profit(val):
@@ -743,8 +757,8 @@ if not positions_df.empty:
                     "履約價": lambda v: f"{v:,.1f}" if v != "" else "",
                     "成交價": "{:,.2f}",
                     "口數": "{:d}",
-                    "到價損益": "{:,.0f}"
-                }).applymap(color_detail_profit, subset=["到價損益"])
+                    "結算損益": "{:,.0f}"
+                }).applymap(color_detail_profit, subset=["結算損益"])
 
                 def color_strategy_detail(val):
                     if val == "策略 A": return 'background-color: #a7d9f7;'
@@ -755,13 +769,13 @@ if not positions_df.empty:
 
                 st.dataframe(styled_detail, use_container_width=True)
     else:
-        st.markdown("<div class='small-muted' style='margin-top:8px'>尚未設定到價，請新增到價以查看到價損益。</div>", unsafe_allow_html=True)
+        st.markdown("<div class='small-muted' style='margin-top:8px'>尚未設定目標結算價，請新增結算價以查看損益。</div>", unsafe_allow_html=True)
 
     st.markdown("</div>", unsafe_allow_html=True)
     
     
     # ---
-    ## ⏳ 選擇權估值與平倉損益分析 (修正重點區域)
+    ## ⏳ 選擇權估值與理論平倉損益分析 
     # ---
 
     st.markdown("<div class='card'>", unsafe_allow_html=True)
@@ -813,7 +827,7 @@ if not positions_df.empty:
 
         
         # ==========================================================
-        # 修正後的計算函數：新增理論平倉損益
+        # 理論平倉損益計算 (維持不變)
         # ==========================================================
         
         current_center_price = st.session_state.simulation_center_price_input
@@ -858,7 +872,7 @@ if not positions_df.empty:
         options_tv_df = options_df.apply(calculate_time_value_for_pos, axis=1)
         options_tv_df = pd.concat([options_df, options_tv_df], axis=1)
 
-        # ======== 顯示時間價值表格 (配合新的欄位名稱調整) ========
+        # ======== 顯示時間價值表格 (維持不變) ========
         st.markdown("---")
         st.subheader("⏱️ 選擇權理論平倉損益列表")
         st.markdown(f"""
@@ -899,18 +913,16 @@ if not positions_df.empty:
         options_tv_df["理論平倉損益金額"] = options_tv_df["理論平倉損益 (點)"] * options_tv_df["口數"] * MULTIPLIER_OPTION
         total_theory_profit = options_tv_df["理論平倉損益金額"].sum()
 
-        # 💥 修正：將這行計算移到 st.metric 之外
         # 計算總理論時間價值金額 (使用絕對值加總)
         options_tv_df['總理論時間價值點數'] = options_tv_df['理論時間價值 (BS TV)'].abs() * options_tv_df['口數']
         total_tv_val = options_tv_df['總理論時間價值點數'].sum() * MULTIPLIER_OPTION
-        # ---------------------------------------
-
+        
         st.markdown("#### 彙總數據")
         col_sum1, col_sum2 = st.columns(2)
         with col_sum1:
             st.metric(
                 label="總理論時間價值金額 (所有理論 BS TV * 口數 * 乘數)",
-                value=f"NT$ {total_tv_val:,.0f}", # 這裡使用已經計算好的變數
+                value=f"NT$ {total_tv_val:,.0f}", 
                 help="權利金中理論時間價值部分的總金額（計算絕對值加總，反映所有部位包含的時間價值總和）。"
             )
         with col_sum2:
