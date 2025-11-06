@@ -114,14 +114,13 @@ st.markdown(
     .strategy-a-bg { background-color: #a7d9f7; padding: 0 4px; border-radius: 4px; font-weight: bold; }
     .strategy-b-bg { background-color: #c0f2c0; padding: 0 4px; border-radius: 4px; font-weight: bold; }
     
-    /* 核心修正：針對 st.expander 內的元素進行精確間距調整，解決重疊問題 */
+    /* 核心修正：針對 st.expander 內的元素進行精確間距調整 */
     div[data-testid="stExpander"] {
         margin-top: 5px; 
     }
     div[data-testid="stExpander"] > div:nth-child(2) {
         padding-top: 10px;
     }
-    /* 更穩定地修正 Expander 內文字體重疊 */
     div[data-testid="stExpander"] > div:first-child {
         margin-bottom: 5px; 
     }
@@ -129,16 +128,25 @@ st.markdown(
         margin-top: 0;
         margin-bottom: 0;
     }
-    /* 確保標題和副標題不被其他元件擠壓 */
     .title, .subtitle {
         line-height: 1.2;
     }
 
-    /* 🎯 修正 Expander 內圖標名稱重疊問題 (問題 1) */
+    /* 🎯 修正 Expander 內圖標名稱重疊問題 (問題 1 & 2) */
+    /* 目標：隱藏所有 stExpander 內部開頭的 stText 元素，該元素常包含洩露的圖標名稱 */
+    div[data-testid="stExpander"] > div:first-child > div:first-child > div:first-child > div:first-child {
+        /* 隱藏掉圖示文字所在的父容器 (如果此容器是 Streamlit 的圖示組件) */
+        overflow: hidden;
+    }
+    /* 更加強力的通用修正，針對 Streamlit 0.85+ 版本的文字組件 */
     div[data-testid="stExpander"] div[data-testid="stText"] {
-        /* 將多餘的圖示文字隱藏 */
         white-space: nowrap; 
         overflow: hidden;
+    }
+    /* 針對標籤 (label) 內容進行處理，防止圖示名稱換行或洩露 */
+    div[data-testid="stExpander"] div[data-testid="stExpanderToggle"] {
+        overflow: hidden;
+        white-space: nowrap;
     }
     </style>
     """,
@@ -463,7 +471,7 @@ else:
 
     st.markdown("</div>", unsafe_allow_html=True)
 
-    # 編輯功能 (維持不變)
+    # 編輯功能 (修正 Expander 洩露問題 1)
     st.markdown("<div class='card'>", unsafe_allow_html=True)
     st.markdown('<div class="section-title">🛠️ 編輯倉位 (索引式)</div>', unsafe_allow_html=True)
     
@@ -603,13 +611,12 @@ if not positions_df.empty:
         a_profits.append(a_val)
         b_profits.append(b_val)
 
-    # ======== 損益曲線圖 & 表格 (修正亂碼) ========
+    # ======== 損益曲線圖 & 表格 (亂碼問題已在上方字體設定修正) ========
     st.markdown("<div class='card'>", unsafe_allow_html=True)
     st.markdown('<div class="section-title">📊 損益曲線與詳表</div>', unsafe_allow_html=True)
 
     col_chart, col_download = st.columns([3,1])
     with col_chart:
-        # 修正圖表標題亂碼
         st.subheader("📈 損益曲線（策略 A vs 策略 B）")
         fig, ax = plt.subplots(figsize=(10,5))
         ax.plot(prices, a_profits, label="策略 A", linewidth=2, color="#0b5cff")
@@ -664,7 +671,7 @@ if not positions_df.empty:
 
 
     # ==========================================================
-    # 💵 最終結算損益分析 (包含微台和選擇權) - 留存並作為核心分析
+    # 💵 最終結算損益分析 (修正 Expander 洩露問題 2)
     # ==========================================================
     st.markdown("<div class='card'>", unsafe_allow_html=True)
     st.markdown('<div class="section-title">💵 假設結算損益分析 (微台+選擇權)</div>', unsafe_allow_html=True)
@@ -743,6 +750,7 @@ if not positions_df.empty:
                 total_profit_tp = target_df[target_df['結算價']==tp]['總損益'].iloc[0]
                 st_class = "color: #0b5cff;" if total_profit_tp > 0 else "color: #cf1322;"
                 
+                # 修正 Expander 洩露問題 2
                 expander_label = f"🔍 結算價 {tp:,.1f} — 總損益：{total_profit_tp:,.0f} (點擊展開)"
                 
                 with st.expander(expander_label, expanded=False):
