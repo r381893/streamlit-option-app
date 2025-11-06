@@ -12,7 +12,9 @@ from datetime import date, timedelta
 from scipy.stats import norm
 
 # ======== 修正中文亂碼 (設置 Matplotlib 字體，包含標楷體備用) ========
-chinese_fonts = ['Microsoft JhengHei', 'DFKai-SB', 'BiauKai', 'Arial Unicode MS']
+# 優先使用 SimHei (常用於Matplotlib的中文簡體) 或 Microsoft JhengHei (繁體 Windows)
+# 如果系統找不到，會依序嘗試列表中的其他字體
+chinese_fonts = ['Microsoft JhengHei', 'SimHei', 'DFKai-SB', 'BiauKai', 'Arial Unicode MS']
 font_found = False
 for font in chinese_fonts:
     if font in font_manager.findSystemFonts(fontpaths=None, fontext='ttf'):
@@ -40,7 +42,7 @@ def color_strategy(val):
 # ======== 頁面設定 ========
 st.set_page_config(page_title="選擇權與微台損益模擬（即時指數版）", layout="wide")
 
-# ======== CSS 樣式（維持不變） ========
+# ======== CSS 樣式（修正字體重疊問題） ========
 st.markdown(
     """
     <style>
@@ -131,6 +133,13 @@ st.markdown(
     .title, .subtitle {
         line-height: 1.2;
     }
+
+    /* 🎯 修正 Expander 內圖標名稱重疊問題 (問題 1) */
+    div[data-testid="stExpander"] div[data-testid="stText"] {
+        /* 將多餘的圖示文字隱藏 */
+        white-space: nowrap; 
+        overflow: hidden;
+    }
     </style>
     """,
     unsafe_allow_html=True,
@@ -175,7 +184,7 @@ def get_tse_index_price(ticker="^TWII"):
         st.error(f"❌ 透過 yfinance 抓取指數價格失敗：{e}", icon="❌")
         return None
 
-# ======== Black-Scholes 模型函式 (保留但已不再使用於頁面顯示) ========
+# ======== Black-Scholes 模型函式 (已不再使用於頁面顯示) ========
 def black_scholes_model(S, K, T, r, sigma, option_type):
     """
     Black-Scholes 模型計算選擇權理論價格
@@ -594,12 +603,13 @@ if not positions_df.empty:
         a_profits.append(a_val)
         b_profits.append(b_val)
 
-    # ======== 損益曲線圖 & 表格 (維持不變) ========
+    # ======== 損益曲線圖 & 表格 (修正亂碼) ========
     st.markdown("<div class='card'>", unsafe_allow_html=True)
     st.markdown('<div class="section-title">📊 損益曲線與詳表</div>', unsafe_allow_html=True)
 
     col_chart, col_download = st.columns([3,1])
     with col_chart:
+        # 修正圖表標題亂碼
         st.subheader("📈 損益曲線（策略 A vs 策略 B）")
         fig, ax = plt.subplots(figsize=(10,5))
         ax.plot(prices, a_profits, label="策略 A", linewidth=2, color="#0b5cff")
@@ -610,9 +620,14 @@ if not positions_df.empty:
         
         ax.set_xlabel("結算價", fontsize=12)
         ax.set_ylabel("損益金額", fontsize=12)
-        ax.set_title(f"策略 A / 策略 B 損益曲線（價平 {center:.1f} ±{int(PRICE_RANGE)}）", fontsize=14)
         
-        ax.legend()
+        # 確保標題和圖例使用正確的字體
+        title_font = font_manager.FontProperties(family=rcParams['font.sans-serif'][0], size=14)
+        ax.set_title(f"策略 A / 策略 B 損益曲線（價平 {center:.1f} ±{int(PRICE_RANGE)}）", fontproperties=title_font)
+        
+        # 讓圖例也使用中文字體
+        legend = ax.legend(prop=font_manager.FontProperties(family=rcParams['font.sans-serif'][0], size=10))
+        
         ax.grid(True, linestyle=":", alpha=0.6)
         st.pyplot(fig)
 
@@ -656,7 +671,7 @@ if not positions_df.empty:
     st.markdown(f"""
     <div style='font-size:14px; margin-bottom: 10px; color:#cf1322;'>
         此計算假設**目標到價**即為**最終結算價** (時間價值歸零)，並計算所有部位的損益。
-        **這就是您的每個倉位到期結算時的最終損益**。
+        **這就是您的每個倉位到期結算時的最終損益預期**。
     </div>
     """, unsafe_allow_html=True)
     
@@ -685,7 +700,6 @@ if not positions_df.empty:
         rows = []
         per_position_details = {}
         
-        # 進行計算 (使用原有的 profit_for_row_at_price 函數，它計算的就是到期結算損益)
         for tp in st.session_state.target_prices:
             a_df = positions_df[positions_df["策略"]=="策略 A"]
             b_df = positions_df[positions_df["策略"]=="策略 B"]
@@ -694,8 +708,7 @@ if not positions_df.empty:
             total_val = a_val + b_val
             rows.append({"結算價": tp, "相對於價平(點)": int(tp-center), "策略 A 損益": a_val, "策略 B 損益": b_val, "總損益": total_val})
             
-            # 詳情計算
-            combined_df = positions_df.copy() # 使用全部部位
+            combined_df = positions_df.copy() 
             combined_df["結算損益"] = combined_df.apply(lambda r: profit_for_row_at_price(r, tp), axis=1)
             per_position_details[tp] = combined_df
 
@@ -725,7 +738,6 @@ if not positions_df.empty:
         st.markdown("---")
         st.subheader("📝 **每筆倉位**在目標結算價下的損益明細")
         
-        # 檢查是否有任何部位
         if not positions_df.empty:
             for tp in st.session_state.target_prices:
                 total_profit_tp = target_df[target_df['結算價']==tp]['總損益'].iloc[0]
@@ -744,7 +756,7 @@ if not positions_df.empty:
                     
                     df_detail = per_position_details[tp].copy()
                     df_detail_display = df_detail.reset_index(drop=True)
-                    # 調整欄位名稱以符合結算邏輯
+                    
                     df_detail_display = df_detail_display[[
                         "策略", "商品", "選擇權類型", "履約價", "方向", "口數", "成交價", "結算損益"
                     ]]
@@ -760,7 +772,7 @@ if not positions_df.empty:
                         "履約價": lambda v: f"{v:,.1f}" if v != "" else "",
                         "成交價": "{:,.2f}",
                         "口數": "{:d}",
-                        "結算損益": "{:,.0f}" # 單位是金額
+                        "結算損益": "{:,.0f}" 
                     }).applymap(color_detail_profit, subset=["結算損益"])
 
                     def color_strategy_detail(val):
@@ -777,13 +789,3 @@ if not positions_df.empty:
         st.markdown("<div class='small-muted' style='margin-top:8px'>尚未設定目標結算價，請新增結算價以查看損益。</div>", unsafe_allow_html=True)
 
     st.markdown("</div>", unsafe_allow_html=True)
-    
-    
-    # ==========================================================
-    # ❌ 刪除 Black-Scholes 估值區塊 (應用戶要求)
-    # ==========================================================
-    
-    # 刪除原有的 '選擇權估值與理論平倉損益分析' 區塊
-    # if options_df: ... else: ... (此處被刪除)
-    
-    pass # 結束整個 if not positions_df.empty 區塊的邏輯
