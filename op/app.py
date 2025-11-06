@@ -4,7 +4,6 @@ import numpy as np
 import json
 import os
 import matplotlib.pyplot as plt
-# 引入 font_manager 確保字體路徑正確
 from matplotlib import rcParams, font_manager
 import requests
 import time
@@ -13,7 +12,6 @@ from datetime import date, timedelta
 from scipy.stats import norm
 
 # ======== 修正中文亂碼 (設置 Matplotlib 字體，包含標楷體備用) ========
-# 嘗試尋找並使用微軟正黑體、標楷體或其他常用的中文字體，以提高成功率
 chinese_fonts = ['Microsoft JhengHei', 'DFKai-SB', 'BiauKai', 'Arial Unicode MS']
 font_found = False
 for font in chinese_fonts:
@@ -23,29 +21,26 @@ for font in chinese_fonts:
         break
         
 if not font_found:
-    # 如果找不到特定字體，使用預設的 sans-serif 列表
     rcParams['font.sans-serif'] = chinese_fonts
 
 rcParams['axes.unicode_minus'] = False # 正常顯示負號
 
-# 策略顏色定義 (💥 修正 NameError：確保 color_strategy 依賴的字典存在)
+# 策略顏色定義 (已修正)
 STRATEGY_COLORS = {
-    "策略 A": '#a7d9f7',  # 淺藍色 (與 CSS 中的 strategy-a-bg 一致)
-    "策略 B": '#c0f2c0'   # 淺綠色 (與 CSS 中的 strategy-b-bg 一致)
+    "策略 A": '#a7d9f7',
+    "策略 B": '#c0f2c0'
 }
 
-# 策略顏色函數 (用於 Pandas Styler) (💥 修正 NameError：確保函數存在)
+# 策略顏色函數 (用於 Pandas Styler) (已修正)
 def color_strategy(val):
     """根據策略名稱返回 CSS 樣式字符串"""
-    color = STRATEGY_COLORS.get(val, '#8c8c8c') # 使用灰色作為默認顏色
-    # 返回背景色和白色字體
+    color = STRATEGY_COLORS.get(val, '#8c8c8c')
     return f'background-color: {color}; font-weight: bold; color: #04335a;'
-# =============================================================================
-
+    
 # ======== 頁面設定 ========
 st.set_page_config(page_title="選擇權與微台損益模擬（即時指數版）", layout="wide")
 
-# ======== CSS 樣式（美化、字體調整、大小調整） ========
+# ======== CSS 樣式（維持不變） ========
 st.markdown(
     """
     <style>
@@ -117,7 +112,7 @@ st.markdown(
     .strategy-a-bg { background-color: #a7d9f7; padding: 0 4px; border-radius: 4px; font-weight: bold; }
     .strategy-b-bg { background-color: #c0f2c0; padding: 0 4px; border-radius: 4px; font-weight: bold; }
     
-    /* 💥 核心修正：針對 st.expander 內的元素進行精確間距調整，解決重疊問題 */
+    /* 核心修正：針對 st.expander 內的元素進行精確間距調整，解決重疊問題 */
     div[data-testid="stExpander"] {
         margin-top: 5px; 
     }
@@ -153,10 +148,10 @@ POSITIONS_FILE = "positions_store.json"
 MULTIPLIER_MICRO = 10.0
 MULTIPLIER_OPTION = 50.0
 PRICE_STEP = 100.0
-RISK_FREE_RATE = 0.015 # 預設無風險利率 (年化 1.5%)
+RISK_FREE_RATE = 0.015 
 
 # ======== 網路資料抓取函式 (使用 yfinance) ========
-@st.cache_data(ttl=600) # 緩存 10 分鐘，避免頻繁請求
+@st.cache_data(ttl=600)
 def get_tse_index_price(ticker="^TWII"):
     """
     從 Yahoo Finance 獲取加權指數的最新價格 (透過 yfinance 函式庫)
@@ -185,14 +180,12 @@ def black_scholes_model(S, K, T, r, sigma, option_type):
     """
     Black-Scholes 模型計算選擇權理論價格
     """
-    # 確保 T 不為零或負數，否則直接返回內含價值
     if T <= 0 or sigma == 0:
         if option_type == 'C':
             return max(0, S - K)
         else: # P
             return max(0, K - S)
     
-    # 避免 log(0) 或 sqrt(0)
     S = max(1e-6, S)
     K = max(1e-6, K)
     T = max(1e-6, T)
@@ -262,7 +255,7 @@ def save_positions(df, center_price, fname=POSITIONS_FILE):
         st.error(f"儲存失敗: {e}", icon="❌")
         return False
         
-# ======== 初始化 session state ========
+# ======== 初始化 session state (維持不變) ========
 if "positions" not in st.session_state:
     st.session_state.positions = pd.DataFrame(columns=[
         "策略", "商品", "選擇權類型", "履約價", "方向", "口數", "成交價"
@@ -337,20 +330,18 @@ with st.container():
 st.markdown("<div class='card'>", unsafe_allow_html=True)
 st.markdown('<div class="section-title">➕ 新增倉位 (建立持倉)</div>', unsafe_allow_html=True)
 
-# 1. 策略和商品必須在 form 之外，才能讓商品選擇即時更新
 col_strat, col_prod = st.columns(2)
 with col_strat:
     new_strategy = st.selectbox("策略", ["策略 A", "策略 B"], key="new_strategy_outside")
 with col_prod:
     new_product = st.selectbox("商品", ["微台", "選擇權"], key="new_product_outside")
 
-# 2. 選擇權類型和履約價的條件式渲染 (依然在 form 之外)
 strike_default = round(st.session_state.center_price / 100) * 100
 new_opt_type = ""
 new_strike = ""
 
 if st.session_state.new_product_outside == "選擇權":
-    st.markdown("---") # 分隔線讓選擇權欄位更清晰
+    st.markdown("---") 
     st.markdown("##### 選擇權細節")
     opt_col1, opt_col2 = st.columns(2)
     with opt_col1:
@@ -359,10 +350,8 @@ if st.session_state.new_product_outside == "選擇權":
         new_strike = st.number_input("履約價", min_value=0.0, step=0.5, value=float(strike_default), key="new_strike_outside")
     st.markdown("---")
 
-# 3. 將其餘輸入放入 st.form
 with st.form(key="add_position_form"):
     
-    # 調整：將方向、口數、成交價放在三欄
     c1, c2, c3 = st.columns(3)
     
     with c1:
@@ -383,7 +372,6 @@ with st.form(key="add_position_form"):
               
         new_entry = st.number_input("成交價（權利金或口數成交價）", min_value=0.0, step=0.5, value=0.0, key="new_entry_inside")
         
-    # 提交按鈕
     submitted = st.form_submit_button("✅ 新增倉位 (加入持倉)", use_container_width=True)
     
     if submitted:
@@ -421,7 +409,6 @@ else:
     st.markdown("<div class='card'>", unsafe_allow_html=True)
     st.markdown('<div class="section-title">📋 現有持倉明細與快速移除</div>', unsafe_allow_html=True)
     
-    # 標題行
     c_strat_h, c_details_h, c_lots_h, c_entry_h, c_delete_h = st.columns([1, 5.5, 1.5, 1.5, 1])
     c_strat_h.markdown("策略", unsafe_allow_html=True)
     c_details_h.markdown("細節 (索引/商品/類型/履約價)", unsafe_allow_html=True)
@@ -430,10 +417,8 @@ else:
     c_delete_h.markdown("<div style='text-align: right;'>操作</div>", unsafe_allow_html=True)
     st.markdown("<hr style='margin-top: 5px; margin-bottom: 5px;'>", unsafe_allow_html=True)
     
-    # 使用迴圈遍歷 DataFrame 的每一行
     for index, row in positions_df.iterrows():
         
-        # 1. 組裝詳細資訊字串
         details = f"({index}) {row['商品']} / "
         if row['商品'] == "選擇權":
             strike_val = row['履約價']
@@ -441,11 +426,9 @@ else:
         else:
             details += f"---"
         
-        # 2. 決定方向顏色和策略顏色
         direction_style = "buy-color" if row['方向'] == "買進" else "sell-color"
         strategy_style = "strategy-a-bg" if row['策略'] == "策略 A" else "strategy-b-bg"
         
-        # 3. 使用 st.columns 創建互動式佈局
         c_strat, c_details, c_lots, c_entry, c_delete = st.columns([1, 5.5, 1.5, 1.5, 1])
 
         with c_strat:
@@ -516,7 +499,6 @@ else:
                     with f_col3:
                         f_entry = st.number_input("成交價", value=float(row["成交價"]), step=0.1, key=f"e_entry_{idx}")
 
-                    # 條件式渲染選擇權欄位
                     if f_product == "選擇權":
                         opt_options = ["買權", "賣權"]
                         default_opt_idx = 0 if row["選擇權類型"] == "買權" else 1
@@ -547,7 +529,6 @@ else:
 ## 📈 損益計算與模擬
 # ---
     
-# 損益計算僅在有倉位時進行
 if not positions_df.empty:
 
     # ======== 損益計算基礎（側邊欄）(維持不變) ========
@@ -619,8 +600,8 @@ if not positions_df.empty:
     with col_chart:
         st.subheader("📈 損益曲線（策略 A vs 策略 B）")
         fig, ax = plt.subplots(figsize=(10,5))
-        ax.plot(prices, a_profits, label="策略 A", linewidth=2, color="#0b5cff") # 藍色
-        ax.plot(prices, b_profits, label="策略 B", linewidth=2, color="#2aa84f") # 綠色
+        ax.plot(prices, a_profits, label="策略 A", linewidth=2, color="#0b5cff")
+        ax.plot(prices, b_profits, label="策略 B", linewidth=2, color="#2aa84f")
         ax.axhline(0, color="black", linestyle="--", linewidth=1)
         ax.axvline(center, color="gray", linestyle=":", linewidth=1)
         ax.set_xlim(center-PRICE_RANGE, center+PRICE_RANGE)
@@ -633,7 +614,6 @@ if not positions_df.empty:
         ax.grid(True, linestyle=":", alpha=0.6)
         st.pyplot(fig)
 
-    # ======== 損益表 (維持不變) ========
     table_df = pd.DataFrame({
         "價格": prices,
         "相對於價平(點)": [int(p-center) for p in prices],
@@ -781,23 +761,21 @@ if not positions_df.empty:
     
     
     # ---
-    ## ⏳ 選擇權時間價值分析 (新增/修改區域)
+    ## ⏳ 選擇權時間價值分析 (已修正邏輯)
     # ---
 
     st.markdown("<div class='card'>", unsafe_allow_html=True)
-    st.markdown('<div class="section-title">⏳ 選擇權時間價值分析 (Black-Scholes 模型)</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">⏳ 選擇權估值與時間價值分析 (Black-Scholes 模型)</div>', unsafe_allow_html=True)
     
-    # 篩選出所有選擇權倉位
     options_df = positions_df[positions_df["商品"] == "選擇權"].copy().reset_index(drop=True)
     
     if options_df.empty:
         st.info("目前無選擇權倉位，此功能僅適用於選擇權。")
     else:
-        # === 側邊欄 Black-Scholes 參數輸入 (修改天數為日期) ===
+        # === 側邊欄 Black-Scholes 參數輸入 (維持不變) ===
         st.sidebar.markdown('---')
         st.sidebar.markdown('## ⏳ 選擇權估值')
         
-        # 1. 波動率輸入 
         volatility = st.sidebar.number_input(
             "假設年化波動率 (IV, %)",
             value=25.0,
@@ -810,7 +788,6 @@ if not positions_df.empty:
         )
         sigma = volatility / 100.0
         
-        # 2. 💥 替換：將天數改為日期輸入
         default_expiry_date = date.today() + timedelta(days=7)
         expiry_date = st.sidebar.date_input(
             "選擇權到期日 (T)",
@@ -820,11 +797,10 @@ if not positions_df.empty:
             help="計算剩餘天數，用於 Black-Scholes 模型。"
         )
 
-        # 根據日期計算天數
         today = date.today()
         days_to_expiry_raw = (expiry_date - today).days
-        days_to_expiry = max(1, days_to_expiry_raw) # 確保至少為 1 天
-        T = days_to_expiry / 365.0 # 年化時間
+        days_to_expiry = max(1, days_to_expiry_raw)
+        T = days_to_expiry / 365.0
         
         st.sidebar.markdown(f"""
         <div style='font-size:14px; margin-top: 8px;'>
@@ -833,28 +809,24 @@ if not positions_df.empty:
         </div>
         """, unsafe_allow_html=True)
 
-        # 3. 無風險利率
         st.sidebar.markdown(f"**無風險利率 (R):** <span style='color:green; font-weight:700;'>{RISK_FREE_RATE*100:.1f}%</span>", unsafe_allow_html=True)
 
         
         # ==========================================================
-        # 💥 新增：計算目前持倉的「時間價值」
+        # 💥 修正後的計算函數：解決時間價值邏輯錯誤
         # ==========================================================
         
-        current_center_price = st.session_state.simulation_center_price_input # 使用模擬中心價作為 Black-Scholes 的 S
+        current_center_price = st.session_state.simulation_center_price_input
         
         def calculate_time_value_for_pos(row):
             strike = float(row['履約價'])
             opt_type_bs = 'C' if row['選擇權類型'] == '買權' else 'P'
             entry_price = float(row['成交價'])
             
-            # 1. 內含價值 (IV)
+            # 1. 內含價值 (IV) - 基於目前的中心價 S
             intrinsic_value = max(0.0, current_center_price - strike) if opt_type_bs == 'C' else max(0.0, strike - current_center_price)
             
-            # 2. 目前時間價值 (TV) = 成交價 - 內含價值
-            time_value = entry_price - intrinsic_value
-            
-            # 3. Black-Scholes 理論時間價值 (TV)
+            # 2. Black-Scholes 理論價格 (BS Price)
             bs_price = black_scholes_model(
                 S=current_center_price, 
                 K=strike, 
@@ -863,33 +835,37 @@ if not positions_df.empty:
                 sigma=sigma, 
                 option_type=opt_type_bs
             )
+            
+            # 3. 理論時間價值 (BS TV) = BS Price - IV
             bs_time_value = bs_price - intrinsic_value
             
+            # 4. 權利金理論價差 = BS理論價格 - 成交價 (衡量估值)
+            premium_difference = bs_price - entry_price
+            
             return pd.Series({
-                '內含價值': intrinsic_value,
-                '目前時間價值': time_value,
-                'BS理論時間價值': bs_time_value
+                '內含價值 (S)': intrinsic_value,
+                'BS理論價格': bs_price,
+                '理論時間價值 (BS TV)': bs_time_value,
+                '權利金理論價差 (BS - 成交)': premium_difference
             })
 
-        # 將計算結果加入 DataFrame
         options_tv_df = options_df.apply(calculate_time_value_for_pos, axis=1)
         options_tv_df = pd.concat([options_df, options_tv_df], axis=1)
 
-        # ======== 顯示時間價值表格 ========
+        # ======== 顯示時間價值表格 (配合新的欄位名稱調整) ========
         st.markdown("---")
-        st.subheader("⏱️ 選擇權持倉時間價值列表")
+        st.subheader("⏱️ 選擇權估值與時間價值列表")
         st.markdown(f"""
         <div style='font-size:14px; margin-bottom: 10px;'>
-            基於目前的 <b>價平中心價 {current_center_price:,.1f}</b>，計算每個選擇權部位的**內含價值**與**時間價值**。
+            基於目前的 <b>價平中心價 {current_center_price:,.1f}</b>、<b>波動率 {volatility:.1f}%</b> 與 <b>到期日 {expiry_date.strftime('%Y-%m-%d')}</b> 進行估值計算。
         </div>
         """, unsafe_allow_html=True)
         
         display_cols = [
             "策略", "選擇權類型", "履約價", "方向", "口數", "成交價",
-            "內含價值", "目前時間價值", "BS理論時間價值"
+            "內含價值 (S)", "BS理論價格", "理論時間價值 (BS TV)", "權利金理論價差 (BS - 成交)"
         ]
         
-        # 定義時間價值顏色 (如果 TV > 0 藍色，TV < 0 紅色)
         def color_tv(val):
             try: f=float(val)
             except: return ''
@@ -897,55 +873,54 @@ if not positions_df.empty:
             elif f < 0: return 'color: #cf1322; font-weight: 700;'
             return ''
             
-        # 這裡會成功呼叫 color_strategy，因為我們已經在檔案開頭定義它
         styled_tv_df = options_tv_df[display_cols].style.format({
             "履約價": "{:,.1f}",
             "成交價": "{:,.2f}",
-            "內含價值": "{:,.2f}",
-            "目前時間價值": "{:,.2f}",
-            "BS理論時間價值": "{:,.2f}"
+            "內含價值 (S)": "{:,.2f}",
+            "BS理論價格": "{:,.2f}",
+            "理論時間價值 (BS TV)": "{:,.2f}",
+            "權利金理論價差 (BS - 成交)": "{:,.2f}"
         }).applymap(color_strategy, subset=["策略"])
         
-        # 應用時間價值顏色
-        styled_tv_df = styled_tv_df.applymap(color_tv, subset=["目前時間價值", "BS理論時間價值"])
+        # 應用價差顏色
+        styled_tv_df = styled_tv_df.applymap(color_tv, subset=["理論時間價值 (BS TV)", "權利金理論價差 (BS - 成交)"])
 
         st.dataframe(styled_tv_df, use_container_width=True, hide_index=True)
 
         # 彙總資訊 (總時間價值損益)
-        options_tv_df["時間價值金額"] = options_tv_df["目前時間價值"] * options_tv_df["口數"] * MULTIPLIER_OPTION
+        # 這裡將使用「權利金理論價差」來衡量倉位潛在的估值差異
+        options_tv_df["估值價差金額"] = options_tv_df["權利金理論價差 (BS - 成交)"] * options_tv_df["口數"] * MULTIPLIER_OPTION
         
-        # 時間價值損益貢獻：買進部位(-)，賣出部位(+)
-        def time_decay_impact(row):
-            tv_amount = row["時間價值金額"]
+        def valuation_impact(row):
+            diff_amount = row["估值價差金額"]
+            # 買進部位 (BS價 > 成交價) -> 價差為正，對買方有利 (正損益)
             if row["方向"] == "買進":
-                return -tv_amount
+                return diff_amount
+            # 賣出部位 (BS價 > 成交價) -> 價差為正，對賣方不利 (負損益)
             else: 
-                return tv_amount
+                return -diff_amount
                 
-        options_tv_df["時間價值損益貢獻"] = options_tv_df.apply(time_decay_impact, axis=1)
+        options_tv_df["倉位潛在估值影響"] = options_tv_df.apply(valuation_impact, axis=1)
 
-        total_time_decay_impact = options_tv_df["時間價值損益貢獻"].sum()
+        total_valuation_impact = options_tv_df["倉位潛在估值影響"].sum()
 
         st.markdown("#### 彙總數據")
         col_sum1, col_sum2 = st.columns(2)
         with col_sum1:
             st.metric(
-                label="所有持倉總時間價值金額 (點數乘以乘數和口數的絕對值)",
-                value=f"NT$ {options_tv_df['時間價值金額'].abs().sum():,.0f}",
-                help="權利金中時間價值部分的總金額（絕對值），反映了權利金有多少是時間價值。"
+                label="總理論時間價值金額 (所有理論 BS TV * 口數 * 乘數)",
+                value=f"NT$ {options_tv_df['理論時間價值 (BS TV)'].abs().sum() * options_tv_df['口數'].sum() * MULTIPLIER_OPTION:,.0f}",
+                help="權利金中理論時間價值部分的總金額，反映了權利金有多少是時間價值。"
             )
         with col_sum2:
             st.metric(
-                label="倉位整體時間價值損益影響 (金額)",
-                value=f"NT$ {total_time_decay_impact:,.0f}",
-                delta=f"NT$ {total_time_decay_impact:,.0f}",
+                label="倉位潛在估值影響 (總金額)",
+                value=f"NT$ {total_valuation_impact:,.0f}",
+                delta=f"NT$ {total_valuation_impact:,.0f}",
                 delta_color="normal",
-                help="整體倉位因時間流逝而獲得/損失的潛在權利金總額。正數表示時間對賣方有利，負數對買方不利。"
+                help="整體倉位基於 Black-Scholes 估值，相對於您的成交價的理論利潤/損失。正數表示您的持倉部位目前被低估，負數表示被高估。"
             )
         st.markdown("---")
-
-        
-        # ... (原有的 Black-Scholes 每日損益模擬代碼如果存在，將接在此處) ...
         
         pass 
     
