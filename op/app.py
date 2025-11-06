@@ -813,7 +813,7 @@ if not positions_df.empty:
 
         
         # ==========================================================
-        # 💥 修正後的計算函數：新增理論平倉損益
+        # 修正後的計算函數：新增理論平倉損益
         # ==========================================================
         
         current_center_price = st.session_state.simulation_center_price_input
@@ -840,16 +840,13 @@ if not positions_df.empty:
             # 3. 理論時間價值 (BS TV) = BS Price - IV
             bs_time_value = bs_price - intrinsic_value
             
-            # 4. 💥 修正：理論平倉損益 (點數)
+            # 4. 理論平倉損益 (點數)
             if direction == "買進":
                 # 買進平倉：BS價格 - 成交價
                 theory_profit_pts = bs_price - entry_price
             else:
                 # 賣出平倉：成交價 - BS價格
                 theory_profit_pts = entry_price - bs_price
-            
-            # 5. 權利金理論價差 = BS理論價格 - 成交價 (衡量估值)
-            premium_difference = bs_price - entry_price # 只是作為參考值
             
             return pd.Series({
                 '內含價值 (S)': intrinsic_value,
@@ -900,20 +897,21 @@ if not positions_df.empty:
 
         # 彙總資訊 (總理論平倉損益金額)
         options_tv_df["理論平倉損益金額"] = options_tv_df["理論平倉損益 (點)"] * options_tv_df["口數"] * MULTIPLIER_OPTION
-        
         total_theory_profit = options_tv_df["理論平倉損益金額"].sum()
+
+        # 💥 修正：將這行計算移到 st.metric 之外
+        # 計算總理論時間價值金額 (使用絕對值加總)
+        options_tv_df['總理論時間價值點數'] = options_tv_df['理論時間價值 (BS TV)'].abs() * options_tv_df['口數']
+        total_tv_val = options_tv_df['總理論時間價值點數'].sum() * MULTIPLIER_OPTION
+        # ---------------------------------------
 
         st.markdown("#### 彙總數據")
         col_sum1, col_sum2 = st.columns(2)
         with col_sum1:
             st.metric(
                 label="總理論時間價值金額 (所有理論 BS TV * 口數 * 乘數)",
-                # 這裡要正確計算所有持倉的總時間價值：
-                options_tv_df['總理論時間價值點數'] = options_tv_df['理論時間價值 (BS TV)'] * options_tv_df['口數']
-                total_tv_val = options_tv_df['總理論時間價值點數'].sum() * MULTIPLIER_OPTION
-                
-                value=f"NT$ {total_tv_val:,.0f}",
-                help="權利金中理論時間價值部分的總金額（計算絕對值）。"
+                value=f"NT$ {total_tv_val:,.0f}", # 這裡使用已經計算好的變數
+                help="權利金中理論時間價值部分的總金額（計算絕對值加總，反映所有部位包含的時間價值總和）。"
             )
         with col_sum2:
             st.metric(
