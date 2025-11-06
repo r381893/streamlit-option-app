@@ -28,6 +28,20 @@ if not font_found:
 
 rcParams['axes.unicode_minus'] = False # 正常顯示負號
 
+# 策略顏色定義 (💥 修正 NameError：確保 color_strategy 依賴的字典存在)
+STRATEGY_COLORS = {
+    "策略 A": '#a7d9f7',  # 淺藍色 (與 CSS 中的 strategy-a-bg 一致)
+    "策略 B": '#c0f2c0'   # 淺綠色 (與 CSS 中的 strategy-b-bg 一致)
+}
+
+# 策略顏色函數 (用於 Pandas Styler) (💥 修正 NameError：確保函數存在)
+def color_strategy(val):
+    """根據策略名稱返回 CSS 樣式字符串"""
+    color = STRATEGY_COLORS.get(val, '#8c8c8c') # 使用灰色作為默認顏色
+    # 返回背景色和白色字體
+    return f'background-color: {color}; font-weight: bold; color: #04335a;'
+# =============================================================================
+
 # ======== 頁面設定 ========
 st.set_page_config(page_title="選擇權與微台損益模擬（即時指數版）", layout="wide")
 
@@ -35,10 +49,10 @@ st.set_page_config(page_title="選擇權與微台損益模擬（即時指數版�
 st.markdown(
     """
     <style>
-    /* 💥 核心修改：將整體字體替換為標楷體 (或備用中文字體) */
+    /* 基礎字體設定 */
     html, body, .stApp, .stApp * {
         font-family: 'DFKai-SB', 'BiauKai', 'Microsoft JhengHei', sans-serif !important;
-        font-size: 15px; /* 調整基礎字體大小 */
+        font-size: 15px;
     }
     
     :root {
@@ -50,7 +64,7 @@ st.markdown(
     body { background-color: var(--page-bg); }
     /* 主標題 */
     .title {
-        font-size: 30px; /* 標題放大 */
+        font-size: 30px;
         font-weight: 800;
         color: #04335a;
         margin-bottom: 4px;
@@ -60,7 +74,7 @@ st.markdown(
         color: var(--muted);
         margin-top: -8px;
         margin-bottom: 20px;
-        font-size: 16px; /* 副標題放大 */
+        font-size: 16px;
     }
     /* 卡片樣式 */
     .card {
@@ -72,7 +86,7 @@ st.markdown(
     }
     /* 區塊標題 */
     .card .section-title {
-        font-size: 20px; /* 區塊標題放大 */
+        font-size: 20px;
         font-weight: 700;
         color: #04335a;
         margin-bottom: 15px;
@@ -83,36 +97,34 @@ st.markdown(
     .stButton>button {
         border-radius: 8px;
         height: 38px;
-        font-size: 15px; /* 按鈕字體大小 */
+        font-size: 15px;
     }
     .small-muted { color: var(--muted); font-size: 14px; }
     hr { border: 0; height: 1px; background: #eaeef7; margin: 14px 0; }
     
-    /* ***** 修正後的自定義列表式倉位顯示的樣式 ***** */
+    /* 列表式倉位顯示的樣式 */
     .position-row-text {
-        font-size: 16px; /* 倉位列表文字放大 */
+        font-size: 16px;
         padding: 5px 0;
     }
-    /* 確保方向/口數、成交價不換行 */
     .position-nowrap {
-        white-space: nowrap; /* 強制不換行，避免長數字斷開 */
+        white-space: nowrap;
     }
     .buy-color { color: #0b5cff; font-weight: bold; }
     .sell-color { color: #cf1322; font-weight: bold; }
     
-    /* 💥 策略 A/B 顏色加深 */
-    .strategy-a-bg { background-color: #a7d9f7; padding: 0 4px; border-radius: 4px; font-weight: bold; } /* 中藍色 */
-    .strategy-b-bg { background-color: #c0f2c0; padding: 0 4px; border-radius: 4px; font-weight: bold; } /* 中綠色 */
+    /* 策略 A/B 顏色加深 */
+    .strategy-a-bg { background-color: #a7d9f7; padding: 0 4px; border-radius: 4px; font-weight: bold; }
+    .strategy-b-bg { background-color: #c0f2c0; padding: 0 4px; border-radius: 4px; font-weight: bold; }
     
-    /* 💥 針對 st.expander 內的元素進行精確間距調整，解決重疊問題 */
-    /* *** 保留原有的 Expander 修正，再新增更穩定的 *** */
+    /* 💥 核心修正：針對 st.expander 內的元素進行精確間距調整，解決重疊問題 */
     div[data-testid="stExpander"] {
         margin-top: 5px; 
     }
     div[data-testid="stExpander"] > div:nth-child(2) {
         padding-top: 10px;
     }
-    /* *** 新增：更穩定地修正 Expander 內文字體重疊 *** */
+    /* 更穩定地修正 Expander 內文字體重疊 */
     div[data-testid="stExpander"] > div:first-child {
         margin-bottom: 5px; 
     }
@@ -172,12 +184,6 @@ def get_tse_index_price(ticker="^TWII"):
 def black_scholes_model(S, K, T, r, sigma, option_type):
     """
     Black-Scholes 模型計算選擇權理論價格
-    S: 標的物價格 (Center Price)
-    K: 履約價
-    T: 剩餘時間 (年化, 例如 5/365)
-    r: 無風險利率 (年化)
-    sigma: 波動率 (年化)
-    option_type: 'C' (Call 買權) 或 'P' (Put 賣權)
     """
     # 確保 T 不為零或負數，否則直接返回內含價值
     if T <= 0 or sigma == 0:
@@ -287,7 +293,7 @@ if st.session_state.center_price is None:
 ## 🗃️ 倉位管理與檔案操作
 # ---
 
-# ======== 檔案操作區 ========
+# ======== 檔案操作區 (維持不變) ========
 with st.container():
     st.markdown("<div class='card'>", unsafe_allow_html=True)
     st.markdown('<div class="section-title">📂 檔案操作與清理</div>', unsafe_allow_html=True)
@@ -327,7 +333,7 @@ with st.container():
             st.success("已清空所有倉位與狀態。")
     st.markdown("</div>", unsafe_allow_html=True)
 
-# ======== 新增倉位 (使用 session state center_price) ========
+# ======== 新增倉位 (維持不變) ========
 st.markdown("<div class='card'>", unsafe_allow_html=True)
 st.markdown('<div class="section-title">➕ 新增倉位 (建立持倉)</div>', unsafe_allow_html=True)
 
@@ -353,7 +359,7 @@ if st.session_state.new_product_outside == "選擇權":
         new_strike = st.number_input("履約價", min_value=0.0, step=0.5, value=float(strike_default), key="new_strike_outside")
     st.markdown("---")
 
-# 3. 將其餘輸入放入 st.form，並使用 form key 確保數據在提交時被收集
+# 3. 將其餘輸入放入 st.form
 with st.form(key="add_position_form"):
     
     # 調整：將方向、口數、成交價放在三欄
@@ -361,8 +367,7 @@ with st.form(key="add_position_form"):
     
     with c1:
         strategy_style = "strategy-a-bg" if st.session_state.new_strategy_outside == "策略 A" else "strategy-b-bg"
-        # 修正：確保這裡顯示的是正確的文字，而不是 HTML 標籤
-        st.markdown(f"**策略：** <span class='{strategy_style}'>{st.session_state.new_strategy_outside}</span>", unsafe_allow_html=True) # 應用顏色
+        st.markdown(f"**策略：** <span class='{strategy_style}'>{st.session_state.new_strategy_outside}</span>", unsafe_allow_html=True)
         new_direction = st.radio("方向", ["買進", "賣出"], horizontal=True, key="new_direction_inside")
         
     with c2:
@@ -374,22 +379,19 @@ with st.form(key="add_position_form"):
               strike_val = st.session_state.new_strike_outside
               st.markdown(f"**類型：** `{st.session_state.new_opt_type_outside}` / **履約價：** `{strike_val:,.1f}`")
         else:
-              st.markdown(f"**<div style='height: 19.5px;'></div>**", unsafe_allow_html=True) # 調整間距
+              st.markdown(f"**<div style='height: 19.5px;'></div>**", unsafe_allow_html=True)
               
         new_entry = st.number_input("成交價（權利金或口數成交價）", min_value=0.0, step=0.5, value=0.0, key="new_entry_inside")
         
     # 提交按鈕
     submitted = st.form_submit_button("✅ 新增倉位 (加入持倉)", use_container_width=True)
     
-    # 💥 修正：確保在 submitted 為 True 時才觸發 rerun
     if submitted:
         
-        # 從 form 外的 session_state 獲取條件式的值
         product_value = st.session_state.new_product_outside
         strategy_value = st.session_state.new_strategy_outside
         
         if product_value == "選擇權":
-              # 從 form 外的 key 獲取值
               strike_value = float(st.session_state.new_strike_outside)
               opt_type_value = st.session_state.new_opt_type_outside
         else:
@@ -407,11 +409,11 @@ with st.form(key="add_position_form"):
         }
         st.session_state.positions = pd.concat([st.session_state.positions, pd.DataFrame([rec])], ignore_index=True)
         st.success("已新增倉位，請在下方持倉明細確認。")
-        st.rerun() # 新增後刷新，確保列表立即更新
+        st.rerun()
 
 st.markdown("</div>", unsafe_allow_html=True)
 
-# ======== 持倉明細 & 編輯/刪除 (列表式顯示和行旁按鈕) ========
+# ======== 持倉明細 & 編輯/刪除 (維持不變) ========
 positions_df = st.session_state.positions.copy()
 if positions_df.empty:
     st.info("尚無任何倉位資料，請先新增或從檔案載入。")
@@ -419,8 +421,7 @@ else:
     st.markdown("<div class='card'>", unsafe_allow_html=True)
     st.markdown('<div class="section-title">📋 現有持倉明細與快速移除</div>', unsafe_allow_html=True)
     
-    # 標題行 (使用 st.columns 模擬標題，與下方內容對齊)
-    # 調整比例為：策略(1) 細節(5.5) 方向/口數(1.5) 成交價(1.5) 操作(1)
+    # 標題行
     c_strat_h, c_details_h, c_lots_h, c_entry_h, c_delete_h = st.columns([1, 5.5, 1.5, 1.5, 1])
     c_strat_h.markdown("策略", unsafe_allow_html=True)
     c_details_h.markdown("細節 (索引/商品/類型/履約價)", unsafe_allow_html=True)
@@ -429,11 +430,10 @@ else:
     c_delete_h.markdown("<div style='text-align: right;'>操作</div>", unsafe_allow_html=True)
     st.markdown("<hr style='margin-top: 5px; margin-bottom: 5px;'>", unsafe_allow_html=True)
     
-    # 使用迴圈遍歷 DataFrame 的每一行 (iterrows 包含 index)
+    # 使用迴圈遍歷 DataFrame 的每一行
     for index, row in positions_df.iterrows():
         
         # 1. 組裝詳細資訊字串
-        # 💥 優化：將索引作為「複試單代號」放在最前面
         details = f"({index}) {row['商品']} / "
         if row['商品'] == "選擇權":
             strike_val = row['履約價']
@@ -443,60 +443,49 @@ else:
         
         # 2. 決定方向顏色和策略顏色
         direction_style = "buy-color" if row['方向'] == "買進" else "sell-color"
-        # 💥 優化：為策略欄位添加顏色背景
         strategy_style = "strategy-a-bg" if row['策略'] == "策略 A" else "strategy-b-bg"
         
-        # 3. 使用 st.columns 創建互動式佈局 (與標題行比例保持一致)
+        # 3. 使用 st.columns 創建互動式佈局
         c_strat, c_details, c_lots, c_entry, c_delete = st.columns([1, 5.5, 1.5, 1.5, 1])
 
-        # 使用自定義的 CSS class 來控制字體大小
         with c_strat:
-            # 💥 應用策略顏色塗色
             st.markdown(f'<div class="position-row-text"><span class="{strategy_style}">{row["策略"]}</span></div>', unsafe_allow_html=True)
 
         with c_details:
             st.markdown(f'<div class="position-row-text">{details}</div>', unsafe_allow_html=True)
             
         with c_lots:
-            # 關鍵修正：將方向/口數放在一個 div 內，並使用樣式避免換行
             st.markdown(f'<div class="position-row-text position-nowrap {direction_style}">{row["方向"]} {row["口數"]} 口</div>', unsafe_allow_html=True)
             
         with c_entry:
-            # 關鍵修正：確保成交價強制不換行，並靠右對齊
             st.markdown(f'<div class="position-row-text position-nowrap" style="text-align: right;">{row["成交價"]:,.2f}</div>', unsafe_allow_html=True)
 
         with c_delete:
-            # 關鍵：使用唯一的 key，點擊後觸發刪除操作
             if st.button("移除", key=f"delete_btn_{index}", type="secondary", use_container_width=True):
-                # 執行刪除操作 (使用索引刪除，不會錯亂)
                 st.session_state.positions = st.session_state.positions.drop(index).reset_index(drop=True)
                 st.toast(f"✅ 已移除 (索引 {index}) 倉位！")
-                st.rerun() # 刪除後立即刷新頁面以更新列表
+                st.rerun()
         
-        # 模擬分隔線
         st.markdown("<hr style='margin-top: 5px; margin-bottom: 5px;'>", unsafe_allow_html=True)
 
 
     st.markdown("</div>", unsafe_allow_html=True)
 
-    # 編輯功能 (改為使用 Selectbox 選擇索引)
+    # 編輯功能 (維持不變)
     st.markdown("<div class='card'>", unsafe_allow_html=True)
     st.markdown('<div class="section-title">🛠️ 編輯倉位 (索引式)</div>', unsafe_allow_html=True)
     
     current_indices = positions_df.index.tolist()
     
-    # 💥 修正：將 expender 標籤文字從 emoji 改為純文字，確保穩定性
     with st.expander("編輯單列倉位"):
         
         col_idx, col_load = st.columns([1,2])
         
         if current_indices:
-            # 確保 _edit_index 初始值在有效範圍內
             if st.session_state._edit_index == -1 and current_indices:
                 st.session_state._edit_index = current_indices[0]
                 
             with col_idx:
-                # 使用 selectbox 確保用戶選擇的是有效的現有索引
                 selected_index = st.selectbox(
                     "選擇要編輯的索引",
                     options=current_indices,
@@ -512,10 +501,8 @@ else:
 
             idx = st.session_state._edit_index
             
-            # 檢查索引是否有效
             if idx in positions_df.index:
                 st.markdown(f"**👉 編輯索引 {idx} 的倉位（修改後按 儲存修改）**")
-                # 由於 st.session_state.positions 已經被 drop 掉，這裡需要從原始的 positions_df 獲取行
                 row = positions_df.loc[idx]
                 
                 with st.form(key=f"edit_form_{idx}"):
@@ -542,7 +529,6 @@ else:
                     
                     submitted = st.form_submit_button("💾 儲存修改", use_container_width=True)
                     if submitted:
-                        # 直接修改該索引的行
                         st.session_state.positions.loc[idx, ["策略","商品","選擇權類型","履約價","方向","口數","成交價"]] = [
                             f_strategy, f_product, f_opt_type, float(f_strike) if f_product=="選擇權" else "",
                             f_direction, int(f_lots), float(f_entry)
@@ -564,7 +550,7 @@ else:
 # 損益計算僅在有倉位時進行
 if not positions_df.empty:
 
-    # ======== 損益計算基礎（側邊欄）========
+    # ======== 損益計算基礎（側邊欄）(維持不變) ========
     
     st.sidebar.markdown('## 🛠️ 損益模擬設定')
     center = st.sidebar.number_input(
@@ -625,7 +611,7 @@ if not positions_df.empty:
         a_profits.append(a_val)
         b_profits.append(b_val)
 
-    # ======== 損益曲線圖 & 表格 ========
+    # ======== 損益曲線圖 & 表格 (維持不變) ========
     st.markdown("<div class='card'>", unsafe_allow_html=True)
     st.markdown('<div class="section-title">📊 損益曲線與詳表</div>', unsafe_allow_html=True)
 
@@ -633,14 +619,12 @@ if not positions_df.empty:
     with col_chart:
         st.subheader("📈 損益曲線（策略 A vs 策略 B）")
         fig, ax = plt.subplots(figsize=(10,5))
-        # 策略 A/B 顏色與 CSS 保持一致
         ax.plot(prices, a_profits, label="策略 A", linewidth=2, color="#0b5cff") # 藍色
         ax.plot(prices, b_profits, label="策略 B", linewidth=2, color="#2aa84f") # 綠色
         ax.axhline(0, color="black", linestyle="--", linewidth=1)
         ax.axvline(center, color="gray", linestyle=":", linewidth=1)
         ax.set_xlim(center-PRICE_RANGE, center+PRICE_RANGE)
         
-        # 💥 修正：明確設定 Matplotlib 的中文標籤
         ax.set_xlabel("結算價", fontsize=12)
         ax.set_ylabel("損益金額", fontsize=12)
         ax.set_title(f"策略 A / 策略 B 損益曲線（價平 {center:.1f} ±{int(PRICE_RANGE)}）", fontsize=14)
@@ -649,7 +633,7 @@ if not positions_df.empty:
         ax.grid(True, linestyle=":", alpha=0.6)
         st.pyplot(fig)
 
-    # ======== 損益表 (使用 st.table 確保完全展開) ========
+    # ======== 損益表 (維持不變) ========
     table_df = pd.DataFrame({
         "價格": prices,
         "相對於價平(點)": [int(p-center) for p in prices],
@@ -660,13 +644,10 @@ if not positions_df.empty:
     def color_profit(val):
         try: f=float(val)
         except: return ''
-        # 💥 優化：損益表加入策略 A/B 顏色塗色
-        # 應用於策略 A/B 損益欄位，並用不同顏色區分正負
-        if f>0: return 'background-color: #d8f5e2; color: #008000;' # 淺綠/綠色字 (整體獲利)
-        elif f<0: return 'background-color: #ffe6e8; color: #cf1322;' # 淺紅/紅色字 (整體虧損)
+        if f>0: return 'background-color: #d8f5e2; color: #008000;'
+        elif f<0: return 'background-color: #ffe6e8; color: #cf1322;'
         return ''
         
-    # 為了避免混淆，將策略 A/B 的顏色分開定義，但這裡只針對損益正負值上色
     styled_table = table_df.style.format({
         "價格": "{:,.1f}",
         "相對於價平(點)": "{:+d}",
@@ -730,11 +711,10 @@ if not positions_df.empty:
         def color_target_profit(val):
             try: f=float(val)
             except: return ''
-            if f>0: return 'background-color: #e6faff' # 淺藍色 (總損益獲利)
-            elif f<0: return 'background-color: #fff0f0' # 淺紅色 (總損益虧損)
+            if f>0: return 'background-color: #e6faff'
+            elif f<0: return 'background-color: #fff0f0'
             return ''
 
-        # 💥 優化：到價損益表也應用策略顏色塗色 (使用 color_profit 函數)
         styled_target = target_df.style.format({
             "到價": "{:,.1f}",
             "相對於價平(點)": "{:+d}",
@@ -755,12 +735,10 @@ if not positions_df.empty:
             total_profit_tp = target_df[target_df['到價']==tp]['總損益'].iloc[0]
             st_class = "color: #0b5cff;" if total_profit_tp > 0 else "color: #cf1322;"
             
-            # 使用純文字作為 st.expander 標籤，避免 TypeError
             expander_label = f"🔍 到價 {tp:,.1f} — 總損益：{total_profit_tp:,.0f} (點擊展開)"
             
             with st.expander(expander_label, expanded=False):
                 
-                # 在展開區塊內，使用 st.markdown 顯示美化後的標題
                 st.markdown(f"""
                 <div style='margin-bottom: 10px; padding: 5px 10px; background-color: #f0f8ff; border-radius: 6px; border-left: 5px solid #0b5cff;'>
                     <b>目標到價: {tp:,.1f}</b> / 
@@ -788,12 +766,11 @@ if not positions_df.empty:
                     "到價損益": "{:,.0f}"
                 }).applymap(color_detail_profit, subset=["到價損益"])
 
-                # 💥 優化：在明細表中，為「策略」欄位塗色
-                def color_strategy(val):
-                    if val == "策略 A": return 'background-color: #a7d9f7;' # 中藍色
-                    elif val == "策略 B": return 'background-color: #c0f2c0;' # 中綠色
+                def color_strategy_detail(val):
+                    if val == "策略 A": return 'background-color: #a7d9f7;'
+                    elif val == "策略 B": return 'background-color: #c0f2c0;'
                     return ''
-                styled_detail = styled_detail.applymap(color_strategy, subset=["策略"])
+                styled_detail = styled_detail.applymap(color_strategy_detail, subset=["策略"])
 
 
                 st.dataframe(styled_detail, use_container_width=True)
@@ -804,25 +781,26 @@ if not positions_df.empty:
     
     
     # ---
-    ## ⏳ 選擇權時間價值分析 (逐日遞減)
+    ## ⏳ 選擇權時間價值分析 (新增/修改區域)
     # ---
 
     st.markdown("<div class='card'>", unsafe_allow_html=True)
     st.markdown('<div class="section-title">⏳ 選擇權時間價值分析 (Black-Scholes 模型)</div>', unsafe_allow_html=True)
     
     # 篩選出所有選擇權倉位
-    options_df = positions_df[positions_df["商品"] == "選擇權"].copy().reset_index()
+    options_df = positions_df[positions_df["商品"] == "選擇權"].copy().reset_index(drop=True)
     
     if options_df.empty:
         st.info("目前無選擇權倉位，此功能僅適用於選擇權。")
     else:
+        # === 側邊欄 Black-Scholes 參數輸入 (修改天數為日期) ===
         st.sidebar.markdown('---')
         st.sidebar.markdown('## ⏳ 選擇權估值')
         
         # 1. 波動率輸入 
         volatility = st.sidebar.number_input(
             "假設年化波動率 (IV, %)",
-            value=25.0, # 恢復為 25.0
+            value=25.0,
             min_value=1.0,
             max_value=100.0,
             step=1.0,
@@ -832,7 +810,7 @@ if not positions_df.empty:
         )
         sigma = volatility / 100.0
         
-        # 2. **💥 替換：將天數改為日期輸入**
+        # 2. 💥 替換：將天數改為日期輸入
         default_expiry_date = date.today() + timedelta(days=7)
         expiry_date = st.sidebar.date_input(
             "選擇權到期日 (T)",
@@ -919,13 +897,14 @@ if not positions_df.empty:
             elif f < 0: return 'color: #cf1322; font-weight: 700;'
             return ''
             
+        # 這裡會成功呼叫 color_strategy，因為我們已經在檔案開頭定義它
         styled_tv_df = options_tv_df[display_cols].style.format({
             "履約價": "{:,.1f}",
             "成交價": "{:,.2f}",
             "內含價值": "{:,.2f}",
             "目前時間價值": "{:,.2f}",
             "BS理論時間價值": "{:,.2f}"
-        }).applymap(color_strategy, subset=["策略"]) # 沿用上方定義的策略顏色函數
+        }).applymap(color_strategy, subset=["策略"])
         
         # 應用時間價值顏色
         styled_tv_df = styled_tv_df.applymap(color_tv, subset=["目前時間價值", "BS理論時間價值"])
@@ -938,10 +917,8 @@ if not positions_df.empty:
         # 時間價值損益貢獻：買進部位(-)，賣出部位(+)
         def time_decay_impact(row):
             tv_amount = row["時間價值金額"]
-            # 買進部位 (TV流失 -> 虧損)
             if row["方向"] == "買進":
                 return -tv_amount
-            # 賣出部位 (TV流失 -> 獲利)
             else: 
                 return tv_amount
                 
@@ -968,14 +945,8 @@ if not positions_df.empty:
         st.markdown("---")
 
         
-        # 以下是原有的 Black-Scholes 每日損益模擬 (時間價值曲線)
+        # ... (原有的 Black-Scholes 每日損益模擬代碼如果存在，將接在此處) ...
         
-        # ... (原有的 Black-Scholes 每日損益模擬代碼，您可以在此處接續) ...
-        # 由於您原來的代碼在此處之後只有一個註釋，我將其移除，但假設您的應用程序在這裡結束。
-        
-        pass # 結束選擇權時間價值分析 (逐日遞減)
+        pass 
     
     st.markdown("</div>", unsafe_allow_html=True)
-    
-    # 這是最後的 'else' 區塊的結尾
-    # ...
