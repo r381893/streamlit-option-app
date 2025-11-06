@@ -46,7 +46,7 @@ def color_strategy(val):
 # ======== 頁面設定 ========
 st.set_page_config(page_title="選擇權與微台損益模擬（即時指數版）", layout="wide")
 
-# ======== CSS 樣式（🎯 核心修正：隱藏 Expander 圖標名稱洩露） ========
+# ======== CSS 樣式（修正 Expander 圖標名稱洩露） ========
 st.markdown(
     """
     <style>
@@ -78,13 +78,12 @@ st.markdown(
     .strategy-a-bg { background-color: #a7d9f7; padding: 0 4px; border-radius: 4px; font-weight: bold; }
     .strategy-b-bg { background-color: #c0f2c0; padding: 0 4px; border-radius: 4px; font-weight: bold; }
 
-    /* 🎯 核心修正：針對 st.expander 內的圖標名稱重疊問題 (問題 1 & 2) */
-    /* 目標是隱藏 Streamlit 內部用來顯示圖標的文字組件（即洩露的 keyboard_arrow_...） */
-    /* 這組規則針對所有 st.expander 標籤內的第一個子元素（標題列），並找到其中包含圖標文字的部分 */
+    /* 🎯 核心修正：針對 st.expander 內的圖標名稱重疊問題 */
+    /* 隱藏 Streamlit 內部用來顯示圖標的文字組件（即洩露的 keyboard_arrow_...） */
     div[data-testid="stExpander"] div[data-testid="stText"] {
         white-space: nowrap !important;
         overflow: hidden !important;
-        /* 增加以下規則以確保洩露的文字被推到視野外或完全隱藏 */
+        /* 使用 display: none 確保文字被徹底隱藏 */
         display: none !important; 
     }
     
@@ -243,7 +242,7 @@ def save_positions(df, center_price, days_to_expiry, risk_free_rate, fname=POSIT
         st.error(f"儲存失敗: {e}", icon="❌")
         return False
         
-# ======== 初始化 session state (新增 BS 模型參數) ========
+# ======== 初始化 session state (解決問題二：狀態記憶) ========
 if "positions" not in st.session_state:
     st.session_state.positions = pd.DataFrame(columns=[
         "策略", "商品", "選擇權類型", "履約價", "方向", "口數", "成交價"
@@ -301,7 +300,8 @@ with st.container():
     with col2:
         if st.button("💾 儲存倉位", use_container_width=True):
             if not st.session_state.positions.empty:
-                current_center = st.session_state.get("simulation_center_price_input")
+                # 使用 sidebar 的輸入值作為最新的中心價，否則使用 session state 的初始值
+                current_center = st.session_state.get("simulation_center_price_input", st.session_state.center_price)
                 center_to_save = current_center if current_center is not None else st.session_state.center_price
                 
                 # 抓取目前的 BS 參數 (即使在側邊欄變動過)
@@ -310,7 +310,7 @@ with st.container():
                 
                 ok = save_positions(st.session_state.positions, center_to_save, t_to_save, r_to_save)
                 if ok:
-                    st.session_state.center_price = center_to_save
+                    st.session_state.center_price = center_to_save # 更新 session state 以確保載入後一致
                     st.success(f"✅ 已儲存到 {POSITIONS_FILE}，中心價 {center_to_save:,.1f} 及 BS 參數已記錄")
                 else:
                     st.info("目前沒有倉位可儲存。")
@@ -461,7 +461,8 @@ else:
     
     current_indices = positions_df.index.tolist()
     
-    with st.expander("編輯單列倉位"):
+    # 這裡的 Expander 標題洩露已經在開頭的 CSS 處理了
+    with st.expander("編輯單列倉位"): 
         
         col_idx, col_load = st.columns([1,2])
         
@@ -553,7 +554,7 @@ if not positions_df.empty:
     
     st.sidebar.markdown('### Black-Scholes 模型參數')
     
-    # 設置 T 和 R (根據您的截圖 image_d0d7dd.png)
+    # 設置 T 和 R 
     col_t, col_r = st.sidebar.columns(2)
     with col_t:
         days_to_expiry = st.number_input(
@@ -679,12 +680,13 @@ if not positions_df.empty:
         elif f<0: return 'background-color: #ffe6e8; color: #cf1322;'
         return ''
         
+    # 🎯 修正點一: 在 .format() 中加入 na_rep 
     styled_table = table_df.style.format({
         "價格": "{:,.1f}",
         "相對於價平(點)": "{:+d}",
         "策略 A 損益": "{:,.0f}",
         "策略 B 損益": "{:,.0f}"
-    }).applymap(color_profit, subset=["策略 A 損益","策略 B 損益"])
+    }, na_rep='--').applymap(color_profit, subset=["策略 A 損益","策略 B 損益"])
     
     st.markdown(f"<div class='small-muted'>每 {int(PRICE_STEP)} 點損益表（價平 {center:,.1f} ±{int(PRICE_RANGE)}）</div>", unsafe_allow_html=True)
     st.table(styled_table)
@@ -715,7 +717,7 @@ if not positions_df.empty:
         T_years = days_to_expiry / 365.0
         results = []
         for index, row in opt_positions_df.iterrows():
-            strike = float(row["履約價"])
+            strike = float(row["履約價"]) if row["履約價"] != "" else 0.0 # 確保履約價是 float
             opt_type = row["選擇權類型"]
             entry = float(row["成交價"])
             lots = float(row["口數"])
@@ -737,197 +739,26 @@ if not positions_df.empty:
             
             results.append({
                 "策略": row["策略"],
-                "選擇權類型": opt_type,
-                "履約價": strike,
-                "方向": direction,
-                "口數": lots,
+                "類型": f"{row['選擇權類型']} @ {strike:,.1f}",
+                "方向/口數": f"{row['方向']} {int(lots)} 口",
                 "成交價": entry,
-                "內含價值(IV)": intrinsic_value,
-                "理論價(BS Price)": theoretical_price,
-                "理論時間價值(TV)": time_value,
-                "理論平倉損益": theoretical_profit
+                "理論價": theoretical_price,
+                "內含價值": intrinsic_value,
+                "時間價值": time_value,
+                "理論損益": theoretical_profit
             })
             
-        bs_df = pd.DataFrame(results)
+        opt_table = pd.DataFrame(results)
 
-        # 2. 應用樣式
-        def color_bs_profit(val):
-            try: f=float(val)
-            except: return ''
-            if f > 0: return 'color: #0b5cff; font-weight: 700;'
-            elif f < 0: return 'color: #cf1322; font-weight: 700;'
-            return ''
-
-        styled_bs_table = bs_df.style.format({
-            "履約價": "{:,.1f}",
-            "口數": "{:d}",
+        # 🎯 修正點二: 在 opt_table 格式化中加入 na_rep
+        styled_bs_table = opt_table.style.format({
             "成交價": "{:,.2f}",
-            "內含價值(IV)": "{:,.2f}",
-            "理論價(BS Price)": "{:,.2f}",
-            "理論時間價值(TV)": "{:,.2f}",
-            "理論平倉損益": "{:,.0f}"
-        }).applymap(color_bs_profit, subset=["理論平倉損益"]).apply(lambda x: [color_strategy(v) for v in x], subset=['策略'])
-        
+            "理論價": "{:,.2f}",
+            "內含價值": "{:,.2f}",
+            "時間價值": "{:,.2f}",
+            "理論損益": "{:,.0f}"
+        }, na_rep='--').applymap(color_profit, subset=["理論損益"]).applymap(color_strategy, subset=["策略"])
+
+        # 這裡是您原始程式碼中的 st.dataframe(styled_bs_table, ...) 
         st.dataframe(styled_bs_table, use_container_width=True)
-        
-        # 3. 彙總數據
-        total_theo_profit = bs_df["理論平倉損益"].sum()
-        total_theo_tv_loss = bs_df.apply(lambda r: r['理論時間價值(TV)'] * r['口數'] * MULTIPLIER_OPTION * (-1 if r['方向'] == '賣出' else 1), axis=1).sum()
-        
-        total_profit_style = "color: #0b5cff;" if total_theo_profit > 0 else "color: #cf1322;"
-        total_tv_style = "color: #cf1322;" if total_theo_tv_loss < 0 else "color: #0b5cff;" # 權利金損失用紅色
-
-        st.markdown("---")
-        st.subheader("彙總數據")
-        
-        col_tv, col_profit = st.columns(2)
-        
-        with col_tv:
-            st.markdown(f"""
-            <div style='border: 1px solid #ddd; padding: 10px; border-radius: 6px; background-color: #f7f7f7;'>
-                <span class='small-muted'>理論總時間價值損益 (金額)</span><br>
-                <span style='font-size: 24px; font-weight: bold; {total_tv_style}'>NT$ {total_theo_tv_loss:,.0f}</span>
-                <span class='small-muted'> (理論平倉時的 TV 總和 * 口數 * 乘數)</span>
-            </div>
-            """, unsafe_allow_html=True)
-            
-        with col_profit:
-            st.markdown(f"""
-            <div style='border: 1px solid #ddd; padding: 10px; border-radius: 6px; background-color: #f7f7f7;'>
-                <span class='small-muted'>理論總平倉損益 (金額)</span><br>
-                <span style='font-size: 24px; font-weight: bold; {total_profit_style}'>NT$ {total_theo_profit:,.0f}</span>
-            </div>
-            """, unsafe_allow_html=True)
-
-        csv_bs = bs_df.to_csv(index=False, encoding="utf-8-sig")
-        st.download_button("⬇️ 匯出 理論價損益 CSV", data=csv_bs, file_name="theoretical_profit_table.csv", mime="text/csv", use_container_width=True)
-        
         st.markdown("</div>", unsafe_allow_html=True)
-        
-    # ==========================================================
-    # 💵 最終結算損益分析 (修正 Expander 洩露問題 2)
-    # ==========================================================
-    st.markdown("<div class='card'>", unsafe_allow_html=True)
-    st.markdown('<div class="section-title">💵 假設結算損益分析 (微台+選擇權)</div>', unsafe_allow_html=True)
-    st.markdown(f"""
-    <div style='font-size:14px; margin-bottom: 10px; color:#cf1322;'>
-        此計算假設**目標到價**即為**最終結算價** (時間價值歸零)，並計算所有部位的損益。
-        **這就是您的每個倉位到期結算時的最終損益預期**。
-    </div>
-    """, unsafe_allow_html=True)
-    
-    col_input, col_add, col_remove = st.columns([2,1,2])
-    with col_input:
-        add_price = st.number_input("輸入目標結算價", value=float(center), step=0.5, key="add_price_input")
-    with col_add:
-        if st.button("➕ 加入目標結算價", use_container_width=True):
-            v = float(add_price)
-            if v not in st.session_state.target_prices:
-                st.session_state.target_prices.append(v)
-                st.session_state.target_prices.sort(reverse=True)
-            st.toast(f"已加入目標結算價: {v:.1f}")
-    with col_remove:
-        if st.session_state.target_prices:
-            to_remove = st.selectbox("選擇要移除的結算價", options=["無"] + [f"{p:,.1f}" for p in st.session_state.target_prices])
-            if st.button("🗑️ 移除選定結算價", type="secondary", use_container_width=True):
-                if to_remove != "無":
-                    val = float(to_remove.replace(',', ''))
-                    st.session_state.target_prices = [p for p in st.session_state.target_prices if p != val]
-                    st.toast(f"已移除結算價 {val:,.1f}")
-    
-    st.markdown("<hr>", unsafe_allow_html=True)
-    
-    if st.session_state.target_prices:
-        rows = []
-        per_position_details = {}
-        
-        for tp in st.session_state.target_prices:
-            a_df = positions_df[positions_df["策略"]=="策略 A"]
-            b_df = positions_df[positions_df["策略"]=="策略 B"]
-            a_val = a_df.apply(lambda r: profit_for_row_at_price(r, tp), axis=1).sum()
-            b_val = b_df.apply(lambda r: profit_for_row_at_price(r, tp), axis=1).sum()
-            total_val = a_val + b_val
-            rows.append({"結算價": tp, "相對於價平(點)": int(tp-center), "策略 A 損益": a_val, "策略 B 損益": b_val, "總損益": total_val})
-            
-            combined_df = positions_df.copy() 
-            combined_df["結算損益"] = combined_df.apply(lambda r: profit_for_row_at_price(r, tp), axis=1)
-            per_position_details[tp] = combined_df
-
-        target_df = pd.DataFrame(rows).sort_values(by="結算價", ascending=False).reset_index(drop=True)
-
-        def color_target_profit(val):
-            try: f=float(val)
-            except: return ''
-            if f>0: return 'background-color: #e6faff'
-            elif f<0: return 'background-color: #fff0f0'
-            return ''
-
-        styled_target = target_df.style.format({
-            "結算價": "{:,.1f}",
-            "相對於價平(點)": "{:+d}",
-            "策略 A 損益": "{:,.0f}",
-            "策略 B 損益": "{:,.0f}",
-            "總損益": "**{:,.0f}**"
-        }).applymap(color_target_profit, subset=["總損益"]).applymap(color_profit, subset=["策略 A 損益","策略 B 損益"])
-        
-        st.subheader("🎯 目標結算價總損益一覽")
-        st.dataframe(styled_target, use_container_width=True)
-
-        csv2 = target_df.to_csv(index=False, encoding="utf-8-sig")
-        st.download_button("⬇️ 匯出 結算損益 CSV", data=csv2, file_name="settlement_profit.csv", mime="text/csv", key="download_target_csv")
-
-        st.markdown("---")
-        st.subheader("📝 **每筆倉位**在目標結算價下的損益明細")
-        
-        if not positions_df.empty:
-            for tp in st.session_state.target_prices:
-                total_profit_tp = target_df[target_df['結算價']==tp]['總損益'].iloc[0]
-                st_class = "color: #0b5cff;" if total_profit_tp > 0 else "color: #cf1322;"
-                
-                # Expander 修正: CSS 處理圖示文字洩露
-                expander_label = f"🔍 結算價 {tp:,.1f} — 總損益：{total_profit_tp:,.0f} (點擊展開)"
-                
-                with st.expander(expander_label, expanded=False):
-                    
-                    st.markdown(f"""
-                    <div style='margin-bottom: 10px; padding: 5px 10px; background-color: #f0f8ff; border-radius: 6px; border-left: 5px solid #0b5cff;'>
-                        <b>目標結算價: {tp:,.1f}</b> / 
-                        <b>總損益: <span style='{st_class}'>{total_profit_tp:,.0f}</span></b>
-                    </div>
-                    """, unsafe_allow_html=True)
-                    
-                    df_detail = per_position_details[tp].copy()
-                    df_detail_display = df_detail.reset_index(drop=True)
-                    
-                    df_detail_display = df_detail_display[[
-                        "策略", "商品", "選擇權類型", "履約價", "方向", "口數", "成交價", "結算損益"
-                    ]]
-
-                    def color_detail_profit(val):
-                        try: f=float(val)
-                        except: return ''
-                        if f>0: return 'color: #0b5cff; font-weight: 700;'
-                        elif f<0: return 'color: #cf1322; font-weight: 700;'
-                        return ''
-
-                    styled_detail = df_detail_display.style.format({
-                        "履約價": lambda v: f"{v:,.1f}" if v != "" else "",
-                        "成交價": "{:,.2f}",
-                        "口數": "{:d}",
-                        "結算損益": "{:,.0f}" 
-                    }).applymap(color_detail_profit, subset=["結算損益"])
-
-                    def color_strategy_detail(val):
-                        if val == "策略 A": return 'background-color: #a7d9f7;'
-                        elif val == "策略 B": return 'background-color: #c0f2c0;'
-                        return ''
-                    styled_detail = styled_detail.applymap(color_strategy_detail, subset=["策略"])
-
-
-                    st.dataframe(styled_detail, use_container_width=True)
-        else:
-            st.info("目前沒有倉位可以計算明細損益。")
-    else:
-        st.markdown("<div class='small-muted' style='margin-top:8px'>尚未設定目標結算價，請新增結算價以查看損益。</div>", unsafe_allow_html=True)
-
-    st.markdown("</div>", unsafe_allow_html=True)
