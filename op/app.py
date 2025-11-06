@@ -175,7 +175,7 @@ def get_tse_index_price(ticker="^TWII"):
         st.error(f"❌ 透過 yfinance 抓取指數價格失敗：{e}", icon="❌")
         return None
 
-# ======== Black-Scholes 模型函式 ========
+# ======== Black-Scholes 模型函式 (保留但已不再使用於頁面顯示) ========
 def black_scholes_model(S, K, T, r, sigma, option_type):
     """
     Black-Scholes 模型計算選擇權理論價格
@@ -649,20 +649,19 @@ if not positions_df.empty:
 
 
     # ==========================================================
-    # 💵 修正後的結算損益分析 (包含微台和選擇權)
+    # 💵 最終結算損益分析 (包含微台和選擇權) - 留存並作為核心分析
     # ==========================================================
     st.markdown("<div class='card'>", unsafe_allow_html=True)
     st.markdown('<div class="section-title">💵 假設結算損益分析 (微台+選擇權)</div>', unsafe_allow_html=True)
     st.markdown(f"""
     <div style='font-size:14px; margin-bottom: 10px; color:#cf1322;'>
         此計算假設**目標到價**即為**最終結算價** (時間價值歸零)，並計算所有部位的損益。
-        此為您所有部位在該價格下的**最終損益預期**。
+        **這就是您的每個倉位到期結算時的最終損益**。
     </div>
     """, unsafe_allow_html=True)
     
     col_input, col_add, col_remove = st.columns([2,1,2])
     with col_input:
-        # 使用目前的中心價作為預設值，更符合「假設目前指數是結算價」的語境
         add_price = st.number_input("輸入目標結算價", value=float(center), step=0.5, key="add_price_input")
     with col_add:
         if st.button("➕ 加入目標結算價", use_container_width=True):
@@ -724,217 +723,67 @@ if not positions_df.empty:
         st.download_button("⬇️ 匯出 結算損益 CSV", data=csv2, file_name="settlement_profit.csv", mime="text/csv", key="download_target_csv")
 
         st.markdown("---")
-        st.subheader("📝 每筆倉位在目標結算價下的損益明細")
-        for tp in st.session_state.target_prices:
-            total_profit_tp = target_df[target_df['結算價']==tp]['總損益'].iloc[0]
-            st_class = "color: #0b5cff;" if total_profit_tp > 0 else "color: #cf1322;"
-            
-            expander_label = f"🔍 結算價 {tp:,.1f} — 總損益：{total_profit_tp:,.0f} (點擊展開)"
-            
-            with st.expander(expander_label, expanded=False):
+        st.subheader("📝 **每筆倉位**在目標結算價下的損益明細")
+        
+        # 檢查是否有任何部位
+        if not positions_df.empty:
+            for tp in st.session_state.target_prices:
+                total_profit_tp = target_df[target_df['結算價']==tp]['總損益'].iloc[0]
+                st_class = "color: #0b5cff;" if total_profit_tp > 0 else "color: #cf1322;"
                 
-                st.markdown(f"""
-                <div style='margin-bottom: 10px; padding: 5px 10px; background-color: #f0f8ff; border-radius: 6px; border-left: 5px solid #0b5cff;'>
-                    <b>目標結算價: {tp:,.1f}</b> / 
-                    <b>總損益: <span style='{st_class}'>{total_profit_tp:,.0f}</span></b>
-                </div>
-                """, unsafe_allow_html=True)
+                expander_label = f"🔍 結算價 {tp:,.1f} — 總損益：{total_profit_tp:,.0f} (點擊展開)"
                 
-                df_detail = per_position_details[tp].copy()
-                df_detail_display = df_detail.reset_index(drop=True)
-                df_detail_display = df_detail_display[[
-                    "策略", "商品", "選擇權類型", "履約價", "方向", "口數", "成交價", "結算損益"
-                ]]
+                with st.expander(expander_label, expanded=False):
+                    
+                    st.markdown(f"""
+                    <div style='margin-bottom: 10px; padding: 5px 10px; background-color: #f0f8ff; border-radius: 6px; border-left: 5px solid #0b5cff;'>
+                        <b>目標結算價: {tp:,.1f}</b> / 
+                        <b>總損益: <span style='{st_class}'>{total_profit_tp:,.0f}</span></b>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    df_detail = per_position_details[tp].copy()
+                    df_detail_display = df_detail.reset_index(drop=True)
+                    # 調整欄位名稱以符合結算邏輯
+                    df_detail_display = df_detail_display[[
+                        "策略", "商品", "選擇權類型", "履約價", "方向", "口數", "成交價", "結算損益"
+                    ]]
 
-                def color_detail_profit(val):
-                    try: f=float(val)
-                    except: return ''
-                    if f>0: return 'color: #0b5cff; font-weight: 700;'
-                    elif f<0: return 'color: #cf1322; font-weight: 700;'
-                    return ''
+                    def color_detail_profit(val):
+                        try: f=float(val)
+                        except: return ''
+                        if f>0: return 'color: #0b5cff; font-weight: 700;'
+                        elif f<0: return 'color: #cf1322; font-weight: 700;'
+                        return ''
 
-                styled_detail = df_detail_display.style.format({
-                    "履約價": lambda v: f"{v:,.1f}" if v != "" else "",
-                    "成交價": "{:,.2f}",
-                    "口數": "{:d}",
-                    "結算損益": "{:,.0f}"
-                }).applymap(color_detail_profit, subset=["結算損益"])
+                    styled_detail = df_detail_display.style.format({
+                        "履約價": lambda v: f"{v:,.1f}" if v != "" else "",
+                        "成交價": "{:,.2f}",
+                        "口數": "{:d}",
+                        "結算損益": "{:,.0f}" # 單位是金額
+                    }).applymap(color_detail_profit, subset=["結算損益"])
 
-                def color_strategy_detail(val):
-                    if val == "策略 A": return 'background-color: #a7d9f7;'
-                    elif val == "策略 B": return 'background-color: #c0f2c0;'
-                    return ''
-                styled_detail = styled_detail.applymap(color_strategy_detail, subset=["策略"])
+                    def color_strategy_detail(val):
+                        if val == "策略 A": return 'background-color: #a7d9f7;'
+                        elif val == "策略 B": return 'background-color: #c0f2c0;'
+                        return ''
+                    styled_detail = styled_detail.applymap(color_strategy_detail, subset=["策略"])
 
 
-                st.dataframe(styled_detail, use_container_width=True)
+                    st.dataframe(styled_detail, use_container_width=True)
+        else:
+            st.info("目前沒有倉位可以計算明細損益。")
     else:
         st.markdown("<div class='small-muted' style='margin-top:8px'>尚未設定目標結算價，請新增結算價以查看損益。</div>", unsafe_allow_html=True)
 
     st.markdown("</div>", unsafe_allow_html=True)
     
     
-    # ---
-    ## ⏳ 選擇權估值與理論平倉損益分析 
-    # ---
-
-    st.markdown("<div class='card'>", unsafe_allow_html=True)
-    st.markdown('<div class="section-title">⏳ 選擇權估值與理論平倉損益分析 (Black-Scholes 模型)</div>', unsafe_allow_html=True)
+    # ==========================================================
+    # ❌ 刪除 Black-Scholes 估值區塊 (應用戶要求)
+    # ==========================================================
     
-    options_df = positions_df[positions_df["商品"] == "選擇權"].copy().reset_index(drop=True)
+    # 刪除原有的 '選擇權估值與理論平倉損益分析' 區塊
+    # if options_df: ... else: ... (此處被刪除)
     
-    if options_df.empty:
-        st.info("目前無選擇權倉位，此功能僅適用於選擇權。")
-    else:
-        # === 側邊欄 Black-Scholes 參數輸入 (維持不變) ===
-        st.sidebar.markdown('---')
-        st.sidebar.markdown('## ⏳ 選擇權估值')
-        
-        volatility = st.sidebar.number_input(
-            "假設年化波動率 (IV, %)",
-            value=25.0,
-            min_value=1.0,
-            max_value=100.0,
-            step=1.0,
-            format="%.1f",
-            key="volatility_input",
-            help="用於 Black-Scholes 模型計算的年化波動率 (Sigma)"
-        )
-        sigma = volatility / 100.0
-        
-        default_expiry_date = date.today() + timedelta(days=7)
-        expiry_date = st.sidebar.date_input(
-            "選擇權到期日 (T)",
-            value=default_expiry_date,
-            min_value=date.today() + timedelta(days=1),
-            key="expiry_date_input",
-            help="計算剩餘天數，用於 Black-Scholes 模型。"
-        )
-
-        today = date.today()
-        days_to_expiry_raw = (expiry_date - today).days
-        days_to_expiry = max(1, days_to_expiry_raw)
-        T = days_to_expiry / 365.0
-        
-        st.sidebar.markdown(f"""
-        <div style='font-size:14px; margin-top: 8px;'>
-            <b>到期剩餘天數:</b> <span style="color:#04335a; font-weight:700;">{days_to_expiry_raw} 天</span>
-            (年化 $T={T:.4f}$)
-        </div>
-        """, unsafe_allow_html=True)
-
-        st.sidebar.markdown(f"**無風險利率 (R):** <span style='color:green; font-weight:700;'>{RISK_FREE_RATE*100:.1f}%</span>", unsafe_allow_html=True)
-
-        
-        # ==========================================================
-        # 理論平倉損益計算 (維持不變)
-        # ==========================================================
-        
-        current_center_price = st.session_state.simulation_center_price_input
-        
-        def calculate_time_value_for_pos(row):
-            strike = float(row['履約價'])
-            opt_type_bs = 'C' if row['選擇權類型'] == '買權' else 'P'
-            entry_price = float(row['成交價'])
-            direction = row['方向']
-            
-            # 1. 內含價值 (IV) - 基於目前的中心價 S
-            intrinsic_value = max(0.0, current_center_price - strike) if opt_type_bs == 'C' else max(0.0, strike - current_center_price)
-            
-            # 2. Black-Scholes 理論價格 (BS Price)
-            bs_price = black_scholes_model(
-                S=current_center_price, 
-                K=strike, 
-                T=T, 
-                r=RISK_FREE_RATE, 
-                sigma=sigma, 
-                option_type=opt_type_bs
-            )
-            
-            # 3. 理論時間價值 (BS TV) = BS Price - IV
-            bs_time_value = bs_price - intrinsic_value
-            
-            # 4. 理論平倉損益 (點數)
-            if direction == "買進":
-                # 買進平倉：BS價格 - 成交價
-                theory_profit_pts = bs_price - entry_price
-            else:
-                # 賣出平倉：成交價 - BS價格
-                theory_profit_pts = entry_price - bs_price
-            
-            return pd.Series({
-                '內含價值 (S)': intrinsic_value,
-                'BS理論價格': bs_price,
-                '理論時間價值 (BS TV)': bs_time_value,
-                '理論平倉損益 (點)': theory_profit_pts
-            })
-
-        options_tv_df = options_df.apply(calculate_time_value_for_pos, axis=1)
-        options_tv_df = pd.concat([options_df, options_tv_df], axis=1)
-
-        # ======== 顯示時間價值表格 (維持不變) ========
-        st.markdown("---")
-        st.subheader("⏱️ 選擇權理論平倉損益列表")
-        st.markdown(f"""
-        <div style='font-size:14px; margin-bottom: 10px;'>
-            假設目前標的物價格為 <b>{current_center_price:,.1f}</b>，且以 <b>Black-Scholes 理論價格</b>平倉時的**每口損益**。
-        </div>
-        """, unsafe_allow_html=True)
-        
-        display_cols = [
-            "策略", "選擇權類型", "履約價", "方向", "口數", "成交價",
-            "內含價值 (S)", "BS理論價格", "理論時間價值 (BS TV)", "理論平倉損益 (點)"
-        ]
-        
-        # 損益顏色 (正數藍色/綠色，負數紅色)
-        def color_profit_style(val):
-            try: f=float(val)
-            except: return ''
-            # 對於點數，我們使用藍色/紅色表示損益
-            if f > 0: return 'color: #0b5cff; font-weight: 700;' 
-            elif f < 0: return 'color: #cf1322; font-weight: 700;'
-            return ''
-            
-        styled_tv_df = options_tv_df[display_cols].style.format({
-            "履約價": "{:,.1f}",
-            "成交價": "{:,.2f}",
-            "內含價值 (S)": "{:,.2f}",
-            "BS理論價格": "{:,.2f}",
-            "理論時間價值 (BS TV)": "{:,.2f}",
-            "理論平倉損益 (點)": "{:,.2f}"
-        }).applymap(color_strategy, subset=["策略"])
-        
-        # 應用損益顏色
-        styled_tv_df = styled_tv_df.applymap(color_profit_style, subset=["理論平倉損益 (點)"])
-
-        st.dataframe(styled_tv_df, use_container_width=True, hide_index=True)
-
-        # 彙總資訊 (總理論平倉損益金額)
-        options_tv_df["理論平倉損益金額"] = options_tv_df["理論平倉損益 (點)"] * options_tv_df["口數"] * MULTIPLIER_OPTION
-        total_theory_profit = options_tv_df["理論平倉損益金額"].sum()
-
-        # 計算總理論時間價值金額 (使用絕對值加總)
-        options_tv_df['總理論時間價值點數'] = options_tv_df['理論時間價值 (BS TV)'].abs() * options_tv_df['口數']
-        total_tv_val = options_tv_df['總理論時間價值點數'].sum() * MULTIPLIER_OPTION
-        
-        st.markdown("#### 彙總數據")
-        col_sum1, col_sum2 = st.columns(2)
-        with col_sum1:
-            st.metric(
-                label="總理論時間價值金額 (所有理論 BS TV * 口數 * 乘數)",
-                value=f"NT$ {total_tv_val:,.0f}", 
-                help="權利金中理論時間價值部分的總金額（計算絕對值加總，反映所有部位包含的時間價值總和）。"
-            )
-        with col_sum2:
-            st.metric(
-                label="總理論平倉損益 (金額)",
-                value=f"NT$ {total_theory_profit:,.0f}",
-                delta=f"NT$ {total_theory_profit:,.0f}",
-                delta_color="normal",
-                help="整體倉位在當前模擬價格下，以 Black-Scholes 理論價格平倉時的總損益。正數表示平倉賺錢，負數表示虧損。"
-            )
-        st.markdown("---")
-        
-        pass 
-    
-    st.markdown("</div>", unsafe_allow_html=True)
+    pass # 結束整個 if not positions_df.empty 區塊的邏輯
