@@ -25,13 +25,13 @@ if not font_found:
 
 rcParams['axes.unicode_minus'] = False # 正常顯示負號
 
-# 策略顏色定義 (已修正)
+# 策略顏色定義
 STRATEGY_COLORS = {
     "策略 A": '#a7d9f7',
     "策略 B": '#c0f2c0'
 }
 
-# 策略顏色函數 (用於 Pandas Styler) (已修正)
+# 策略顏色函數 (用於 Pandas Styler)
 def color_strategy(val):
     """根據策略名稱返回 CSS 樣式字符串"""
     color = STRATEGY_COLORS.get(val, '#8c8c8c')
@@ -761,11 +761,11 @@ if not positions_df.empty:
     
     
     # ---
-    ## ⏳ 選擇權時間價值分析 (已修正邏輯)
+    ## ⏳ 選擇權估值與平倉損益分析 (修正重點區域)
     # ---
 
     st.markdown("<div class='card'>", unsafe_allow_html=True)
-    st.markdown('<div class="section-title">⏳ 選擇權估值與時間價值分析 (Black-Scholes 模型)</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">⏳ 選擇權估值與理論平倉損益分析 (Black-Scholes 模型)</div>', unsafe_allow_html=True)
     
     options_df = positions_df[positions_df["商品"] == "選擇權"].copy().reset_index(drop=True)
     
@@ -813,7 +813,7 @@ if not positions_df.empty:
 
         
         # ==========================================================
-        # 💥 修正後的計算函數：解決時間價值邏輯錯誤
+        # 💥 修正後的計算函數：新增理論平倉損益
         # ==========================================================
         
         current_center_price = st.session_state.simulation_center_price_input
@@ -822,6 +822,7 @@ if not positions_df.empty:
             strike = float(row['履約價'])
             opt_type_bs = 'C' if row['選擇權類型'] == '買權' else 'P'
             entry_price = float(row['成交價'])
+            direction = row['方向']
             
             # 1. 內含價值 (IV) - 基於目前的中心價 S
             intrinsic_value = max(0.0, current_center_price - strike) if opt_type_bs == 'C' else max(0.0, strike - current_center_price)
@@ -839,14 +840,22 @@ if not positions_df.empty:
             # 3. 理論時間價值 (BS TV) = BS Price - IV
             bs_time_value = bs_price - intrinsic_value
             
-            # 4. 權利金理論價差 = BS理論價格 - 成交價 (衡量估值)
-            premium_difference = bs_price - entry_price
+            # 4. 💥 修正：理論平倉損益 (點數)
+            if direction == "買進":
+                # 買進平倉：BS價格 - 成交價
+                theory_profit_pts = bs_price - entry_price
+            else:
+                # 賣出平倉：成交價 - BS價格
+                theory_profit_pts = entry_price - bs_price
+            
+            # 5. 權利金理論價差 = BS理論價格 - 成交價 (衡量估值)
+            premium_difference = bs_price - entry_price # 只是作為參考值
             
             return pd.Series({
                 '內含價值 (S)': intrinsic_value,
                 'BS理論價格': bs_price,
                 '理論時間價值 (BS TV)': bs_time_value,
-                '權利金理論價差 (BS - 成交)': premium_difference
+                '理論平倉損益 (點)': theory_profit_pts
             })
 
         options_tv_df = options_df.apply(calculate_time_value_for_pos, axis=1)
@@ -854,21 +863,23 @@ if not positions_df.empty:
 
         # ======== 顯示時間價值表格 (配合新的欄位名稱調整) ========
         st.markdown("---")
-        st.subheader("⏱️ 選擇權估值與時間價值列表")
+        st.subheader("⏱️ 選擇權理論平倉損益列表")
         st.markdown(f"""
         <div style='font-size:14px; margin-bottom: 10px;'>
-            基於目前的 <b>價平中心價 {current_center_price:,.1f}</b>、<b>波動率 {volatility:.1f}%</b> 與 <b>到期日 {expiry_date.strftime('%Y-%m-%d')}</b> 進行估值計算。
+            假設目前標的物價格為 <b>{current_center_price:,.1f}</b>，且以 <b>Black-Scholes 理論價格</b>平倉時的**每口損益**。
         </div>
         """, unsafe_allow_html=True)
         
         display_cols = [
             "策略", "選擇權類型", "履約價", "方向", "口數", "成交價",
-            "內含價值 (S)", "BS理論價格", "理論時間價值 (BS TV)", "權利金理論價差 (BS - 成交)"
+            "內含價值 (S)", "BS理論價格", "理論時間價值 (BS TV)", "理論平倉損益 (點)"
         ]
         
-        def color_tv(val):
+        # 損益顏色 (正數藍色/綠色，負數紅色)
+        def color_profit_style(val):
             try: f=float(val)
             except: return ''
+            # 對於點數，我們使用藍色/紅色表示損益
             if f > 0: return 'color: #0b5cff; font-weight: 700;' 
             elif f < 0: return 'color: #cf1322; font-weight: 700;'
             return ''
@@ -879,46 +890,38 @@ if not positions_df.empty:
             "內含價值 (S)": "{:,.2f}",
             "BS理論價格": "{:,.2f}",
             "理論時間價值 (BS TV)": "{:,.2f}",
-            "權利金理論價差 (BS - 成交)": "{:,.2f}"
+            "理論平倉損益 (點)": "{:,.2f}"
         }).applymap(color_strategy, subset=["策略"])
         
-        # 應用價差顏色
-        styled_tv_df = styled_tv_df.applymap(color_tv, subset=["理論時間價值 (BS TV)", "權利金理論價差 (BS - 成交)"])
+        # 應用損益顏色
+        styled_tv_df = styled_tv_df.applymap(color_profit_style, subset=["理論平倉損益 (點)"])
 
         st.dataframe(styled_tv_df, use_container_width=True, hide_index=True)
 
-        # 彙總資訊 (總時間價值損益)
-        # 這裡將使用「權利金理論價差」來衡量倉位潛在的估值差異
-        options_tv_df["估值價差金額"] = options_tv_df["權利金理論價差 (BS - 成交)"] * options_tv_df["口數"] * MULTIPLIER_OPTION
+        # 彙總資訊 (總理論平倉損益金額)
+        options_tv_df["理論平倉損益金額"] = options_tv_df["理論平倉損益 (點)"] * options_tv_df["口數"] * MULTIPLIER_OPTION
         
-        def valuation_impact(row):
-            diff_amount = row["估值價差金額"]
-            # 買進部位 (BS價 > 成交價) -> 價差為正，對買方有利 (正損益)
-            if row["方向"] == "買進":
-                return diff_amount
-            # 賣出部位 (BS價 > 成交價) -> 價差為正，對賣方不利 (負損益)
-            else: 
-                return -diff_amount
-                
-        options_tv_df["倉位潛在估值影響"] = options_tv_df.apply(valuation_impact, axis=1)
-
-        total_valuation_impact = options_tv_df["倉位潛在估值影響"].sum()
+        total_theory_profit = options_tv_df["理論平倉損益金額"].sum()
 
         st.markdown("#### 彙總數據")
         col_sum1, col_sum2 = st.columns(2)
         with col_sum1:
             st.metric(
                 label="總理論時間價值金額 (所有理論 BS TV * 口數 * 乘數)",
-                value=f"NT$ {options_tv_df['理論時間價值 (BS TV)'].abs().sum() * options_tv_df['口數'].sum() * MULTIPLIER_OPTION:,.0f}",
-                help="權利金中理論時間價值部分的總金額，反映了權利金有多少是時間價值。"
+                # 這裡要正確計算所有持倉的總時間價值：
+                options_tv_df['總理論時間價值點數'] = options_tv_df['理論時間價值 (BS TV)'] * options_tv_df['口數']
+                total_tv_val = options_tv_df['總理論時間價值點數'].sum() * MULTIPLIER_OPTION
+                
+                value=f"NT$ {total_tv_val:,.0f}",
+                help="權利金中理論時間價值部分的總金額（計算絕對值）。"
             )
         with col_sum2:
             st.metric(
-                label="倉位潛在估值影響 (總金額)",
-                value=f"NT$ {total_valuation_impact:,.0f}",
-                delta=f"NT$ {total_valuation_impact:,.0f}",
+                label="總理論平倉損益 (金額)",
+                value=f"NT$ {total_theory_profit:,.0f}",
+                delta=f"NT$ {total_theory_profit:,.0f}",
                 delta_color="normal",
-                help="整體倉位基於 Black-Scholes 估值，相對於您的成交價的理論利潤/損失。正數表示您的持倉部位目前被低估，負數表示被高估。"
+                help="整體倉位在當前模擬價格下，以 Black-Scholes 理論價格平倉時的總損益。正數表示平倉賺錢，負數表示虧損。"
             )
         st.markdown("---")
         
