@@ -270,6 +270,12 @@ if "tse_index_price" not in st.session_state:
     st.session_state.tse_index_price = None
 if "center_price" not in st.session_state:
     st.session_state.center_price = None
+    
+# ********* 初始化補償值 *********
+if "compensation_a" not in st.session_state:
+    st.session_state.compensation_a = 0.0
+if "compensation_b" not in st.session_state:
+    st.session_state.compensation_b = 0.0
 
 # ********* 獲取並設定中心價 *********
 if st.session_state.tse_index_price is None:
@@ -326,6 +332,8 @@ with st.container():
             st.session_state.target_prices = []
             # 清空後，將中心價重設為最新的大盤指數
             st.session_state.center_price = st.session_state.tse_index_price
+            st.session_state.compensation_a = 0.0 # 清空補償值
+            st.session_state.compensation_b = 0.0 # 清空補償值
             st.success("已清空所有倉位與狀態。")
     st.markdown("</div>", unsafe_allow_html=True)
 
@@ -425,7 +433,7 @@ else:
         details = f"({index}) {row['商品']} / "
         if row['商品'] == "選擇權":
             strike_val = row['履約價']
-            details += f"{row['選擇權類型']} @ {strike_val:,.1f}" if strike_val != "" else f"{row['選擇權類型']} @ ---"
+            details += f"{strike_val:,.1f} {row['選擇權類型']}" if strike_val != "" else f"--- {row['選擇權類型']}"
         else:
             details += f"---"
         
@@ -534,7 +542,7 @@ else:
     
 if not positions_df.empty:
 
-    # ======== 損益計算基礎（側邊欄）(維持不變) ========
+    # ======== 損益計算基礎（側邊欄）(新增補償值) ========
     
     st.sidebar.markdown('## 🛠️ 損益模擬設定')
     center = st.sidebar.number_input(
@@ -554,10 +562,35 @@ if not positions_df.empty:
         help="價格範圍為 [Center - Range, Center + Range]"
     )
     
+    # ********* 新增補償值輸入框 *********
+    st.sidebar.markdown("---")
+    st.sidebar.markdown('### 💰 已實現損益 (補償值)')
+    compensation_a = st.sidebar.number_input(
+        "策略 A 補償值 (已平倉損益)",
+        value=st.session_state.compensation_a,
+        step=100.0,
+        key="compensation_a_input",
+        help="加入已實現的獲利/虧損，讓曲線圖平移。"
+    )
+    compensation_b = st.sidebar.number_input(
+        "策略 B 補償值 (已平倉損益)",
+        value=st.session_state.compensation_b,
+        step=100.0,
+        key="compensation_b_input",
+        help="加入已實現的獲利/虧損，讓曲線圖平移。"
+    )
+    st.session_state.compensation_a = compensation_a
+    st.session_state.compensation_b = compensation_b
+    # ********* 補償值輸入框結束 *********
+    
+    
     st.sidebar.markdown(f"""
     <div style='font-size:14px; margin-top: 15px;'>
         <p><b>中心價:</b> <span style="color:#04335a; font-weight:700;">{center:,.1f}</span></p>
         <p><b>模擬範圍:</b> <span style="color:#04335a; font-weight:700;">±{PRICE_RANGE} 點</span></p>
+        <hr>
+        <p><b>策略 A 補償:</b> <span style="color:#0b5cff; font-weight:700;">{compensation_a:,.0f}</span></p>
+        <p><b>策略 B 補償:</b> <span style="color:#2aa84f; font-weight:700;">{compensation_b:,.0f}</span></p>
     </div>
     """, unsafe_allow_html=True)
 
@@ -589,78 +622,101 @@ if not positions_df.empty:
                 
             return (intrinsic - entry) * lots * multiplier if direction == "買進" else (entry - intrinsic) * lots * multiplier
 
-    a_profits, b_profits = [], []
+    a_profits_raw, b_profits_raw = [], []
     for p in prices:
         a_df = positions_df[positions_df["策略"]=="策略 A"]
         b_df = positions_df[positions_df["策略"]=="策略 B"]
         a_val = a_df.apply(lambda r: profit_for_row_at_price(r,p), axis=1).sum()
         b_val = b_df.apply(lambda r: profit_for_row_at_price(r,p), axis=1).sum()
-        a_profits.append(a_val)
-        b_profits.append(b_val)
+        a_profits_raw.append(a_val)
+        b_profits_raw.append(b_val)
+        
+    # ********* 加入補償值 *********
+    a_profits_total = [p + compensation_a for p in a_profits_raw]
+    b_profits_total = [p + compensation_b for p in b_profits_raw]
+    # ********* 加入補償值結束 *********
 
-    # ======== 損益曲線圖 & 表格 (維持不變) ========
+    # ======== 損益曲線圖 & 表格 (更新為總損益) ========
     st.markdown("<div class='card'>", unsafe_allow_html=True)
     st.markdown('<div class="section-title">📊 損益曲線與詳表</div>', unsafe_allow_html=True)
 
     col_chart, col_download = st.columns([3,1])
     with col_chart:
-        st.subheader("📈 損益曲線（策略 A vs 策略 B）")
+        st.subheader("📈 損益曲線（含補償值）")
         fig, ax = plt.subplots(figsize=(10,5))
-        ax.plot(prices, a_profits, label="策略 A", linewidth=2, color="#0b5cff")
-        ax.plot(prices, b_profits, label="策略 B", linewidth=2, color="#2aa84f")
+        # 繪製總損益曲線
+        ax.plot(prices, a_profits_total, label=f"策略 A 總損益 (含 {compensation_a:,.0f} 補償)", linewidth=2, color="#0b5cff")
+        ax.plot(prices, b_profits_total, label=f"策略 B 總損益 (含 {compensation_b:,.0f} 補償)", linewidth=2, color="#2aa84f")
+        
         ax.axhline(0, color="black", linestyle="--", linewidth=1)
         ax.axvline(center, color="gray", linestyle=":", linewidth=1)
         ax.set_xlim(center-PRICE_RANGE, center+PRICE_RANGE)
         
         ax.set_xlabel("結算價", fontsize=12)
         ax.set_ylabel("損益金額", fontsize=12)
-        ax.set_title(f"策略 A / 策略 B 損益曲線（價平 {center:.1f} ±{int(PRICE_RANGE)}）", fontsize=14)
+        ax.set_title(f"策略 A / 策略 B 總損益曲線（價平 {center:.1f} ±{int(PRICE_RANGE)}）", fontsize=14)
         
-        ax.legend()
+        ax.legend(loc='upper left')
         ax.grid(True, linestyle=":", alpha=0.6)
         st.pyplot(fig)
 
+    # ********* 更新表格欄位 *********
     table_df = pd.DataFrame({
         "價格": prices,
         "相對於價平(點)": [int(p-center) for p in prices],
-        "策略 A 損益": a_profits,
-        "策略 B 損益": b_profits
+        "策略 A 原始損益": a_profits_raw,
+        "策略 B 原始損益": b_profits_raw,
+        "策略 A 總損益": a_profits_total,
+        "策略 B 總損益": b_profits_total
     }).sort_values(by="價格", ascending=False).reset_index(drop=True)
 
     def color_profit(val):
         try: f=float(val)
         except: return ''
-        if f>0: return 'background-color: #d8f5e2; color: #008000;'
-        elif f<0: return 'background-color: #ffe6e8; color: #cf1322;'
+        if f>0: return 'color: #008000; font-weight: 600;'
+        elif f<0: return 'color: #cf1322; font-weight: 600;'
+        return ''
+        
+    def color_total_profit(val):
+        try: f=float(val)
+        except: return ''
+        if f>0: return 'background-color: #d8f5e2; color: #008000; font-weight: 700;'
+        elif f<0: return 'background-color: #ffe6e8; color: #cf1322; font-weight: 700;'
         return ''
         
     styled_table = table_df.style.format({
         "價格": "{:,.1f}",
         "相對於價平(點)": "{:+d}",
-        "策略 A 損益": "{:,.0f}",
-        "策略 B 損益": "{:,.0f}"
-    }).applymap(color_profit, subset=["策略 A 損益","策略 B 損益"])
+        "策略 A 原始損益": "{:,.0f}",
+        "策略 B 原始損益": "{:,.0f}",
+        "策略 A 總損益": "**{:,.0f}**",
+        "策略 B 總損益": "**{:,.0f}**"
+    }).applymap(color_profit, subset=["策略 A 原始損益","策略 B 原始損益"]) \
+      .applymap(color_total_profit, subset=["策略 A 總損益","策略 B 總損益"])
     
     st.markdown(f"<div class='small-muted'>每 {int(PRICE_STEP)} 點損益表（價平 {center:,.1f} ±{int(PRICE_RANGE)}）</div>", unsafe_allow_html=True)
     st.table(styled_table)
 
     with col_download:
         st.markdown("<div style='height:40px'></div>", unsafe_allow_html=True)
+        # 匯出所有欄位
         csv = table_df.to_csv(index=False, encoding="utf-8-sig")
-        st.download_button("⬇️ 匯出 模擬損益 CSV", data=csv, file_name="profit_table.csv", mime="text/csv", use_container_width=True)
+        st.download_button("⬇️ 匯出 模擬損益 CSV", data=csv, file_name="profit_table_with_compensation.csv", mime="text/csv", use_container_width=True)
+    # ********* 更新表格欄位結束 *********
     
     st.markdown("</div>", unsafe_allow_html=True)
 
 
     # ==========================================================
-    # 💵 最終結算損益分析 (包含微台和選擇權) - 留存並作為核心分析
+    # 💵 最終結算損益分析 (更新為總損益)
     # ==========================================================
     st.markdown("<div class='card'>", unsafe_allow_html=True)
     st.markdown('<div class="section-title">💵 假設結算損益分析 (微台+選擇權)</div>', unsafe_allow_html=True)
     st.markdown(f"""
     <div style='font-size:14px; margin-bottom: 10px; color:#cf1322;'>
         此計算假設**目標到價**即為**最終結算價** (時間價值歸零)，並計算所有部位的損益。
-        **這就是您的每個倉位到期結算時的最終損益**。
+        <b><span style='color:#0b5cff;'>策略 A 補償值: {compensation_a:,.0f}</span></b> / 
+        <b><span style='color:#2aa84f;'>策略 B 補償值: {compensation_b:,.0f}</span></b>
     </div>
     """, unsafe_allow_html=True)
     
@@ -693,10 +749,22 @@ if not positions_df.empty:
         for tp in st.session_state.target_prices:
             a_df = positions_df[positions_df["策略"]=="策略 A"]
             b_df = positions_df[positions_df["策略"]=="策略 B"]
-            a_val = a_df.apply(lambda r: profit_for_row_at_price(r, tp), axis=1).sum()
-            b_val = b_df.apply(lambda r: profit_for_row_at_price(r, tp), axis=1).sum()
-            total_val = a_val + b_val
-            rows.append({"結算價": tp, "相對於價平(點)": int(tp-center), "策略 A 損益": a_val, "策略 B 損益": b_val, "總損益": total_val})
+            a_raw_val = a_df.apply(lambda r: profit_for_row_at_price(r, tp), axis=1).sum()
+            b_raw_val = b_df.apply(lambda r: profit_for_row_at_price(r, tp), axis=1).sum()
+            
+            a_total_val = a_raw_val + compensation_a
+            b_total_val = b_raw_val + compensation_b
+            total_sum = a_total_val + b_total_val
+            
+            rows.append({
+                "結算價": tp, 
+                "相對於價平(點)": int(tp-center), 
+                "策略 A 原始損益": a_raw_val, 
+                "策略 B 原始損益": b_raw_val,
+                "策略 A 總損益": a_total_val, 
+                "策略 B 總損益": b_total_val,
+                "總計 (A+B)": total_sum
+            })
             
             # 詳情計算
             combined_df = positions_df.copy() # 使用全部部位
@@ -715,16 +783,19 @@ if not positions_df.empty:
         styled_target = target_df.style.format({
             "結算價": "{:,.1f}",
             "相對於價平(點)": "{:+d}",
-            "策略 A 損益": "{:,.0f}",
-            "策略 B 損益": "{:,.0f}",
-            "總損益": "**{:,.0f}**"
-        }).applymap(color_target_profit, subset=["總損益"]).applymap(color_profit, subset=["策略 A 損益","策略 B 損益"])
+            "策略 A 原始損益": "{:,.0f}",
+            "策略 B 原始損益": "{:,.0f}",
+            "策略 A 總損益": "{:,.0f}", 
+            "策略 B 總損益": "{:,.0f}",
+            "總計 (A+B)": "**{:,.0f}**"
+        }).applymap(color_target_profit, subset=["總計 (A+B)"]) \
+          .applymap(color_profit, subset=["策略 A 原始損益","策略 B 原始損益", "策略 A 總損益", "策略 B 總損益"])
         
         st.subheader("🎯 目標結算價總損益一覽")
         st.dataframe(styled_target, use_container_width=True)
 
         csv2 = target_df.to_csv(index=False, encoding="utf-8-sig")
-        st.download_button("⬇️ 匯出 結算損益 CSV", data=csv2, file_name="settlement_profit.csv", mime="text/csv", key="download_target_csv")
+        st.download_button("⬇️ 匯出 結算損益 CSV", data=csv2, file_name="settlement_profit_with_compensation.csv", mime="text/csv", key="download_target_csv")
 
         st.markdown("---")
         st.subheader("📝 **每筆倉位**在目標結算價下的損益明細")
@@ -732,17 +803,17 @@ if not positions_df.empty:
         # 檢查是否有任何部位
         if not positions_df.empty:
             for tp in st.session_state.target_prices:
-                total_profit_tp = target_df[target_df['結算價']==tp]['總損益'].iloc[0]
+                total_profit_tp = target_df[target_df['結算價']==tp]['總計 (A+B)'].iloc[0]
                 st_class = "color: #0b5cff;" if total_profit_tp > 0 else "color: #cf1322;"
                 
-                expander_label = f"🔍 結算價 {tp:,.1f} — 總損益：{total_profit_tp:,.0f} (點擊展開)"
+                expander_label = f"🔍 結算價 {tp:,.1f} — 總損益 (含補償值)：{total_profit_tp:,.0f} (點擊展開)"
                 
                 with st.expander(expander_label, expanded=False):
                     
                     st.markdown(f"""
                     <div style='margin-bottom: 10px; padding: 5px 10px; background-color: #f0f8ff; border-radius: 6px; border-left: 5px solid #0b5cff;'>
                         <b>目標結算價: {tp:,.1f}</b> / 
-                        <b>總損益: <span style='{st_class}'>{total_profit_tp:,.0f}</span></b>
+                        <b>總損益 (含補償): <span style='{st_class}'>{total_profit_tp:,.0f}</span></b>
                     </div>
                     """, unsafe_allow_html=True)
                     
@@ -752,6 +823,24 @@ if not positions_df.empty:
                     df_detail_display = df_detail_display[[
                         "策略", "商品", "選擇權類型", "履約價", "方向", "口數", "成交價", "結算損益"
                     ]]
+
+                    # 新增補償值列
+                    compensation_rows = []
+                    if compensation_a != 0:
+                        compensation_rows.append({
+                            "策略": "策略 A", "商品": "已實現", "選擇權類型": "---", "履約價": "", 
+                            "方向": "---", "口數": 1, "成交價": 0.0, "結算損益": compensation_a
+                        })
+                    if compensation_b != 0:
+                         compensation_rows.append({
+                            "策略": "策略 B", "商品": "已實現", "選擇權類型": "---", "履約價": "", 
+                            "方向": "---", "口數": 1, "成交價": 0.0, "結算損益": compensation_b
+                        })
+                    
+                    if compensation_rows:
+                        df_comp = pd.DataFrame(compensation_rows)
+                        df_detail_display = pd.concat([df_detail_display, df_comp], ignore_index=True)
+                        df_detail_display = df_detail_display.sort_values(by=['策略', '商品'], ascending=[True, False]).reset_index(drop=True)
 
                     def color_detail_profit(val):
                         try: f=float(val)
@@ -763,7 +852,7 @@ if not positions_df.empty:
                     styled_detail = df_detail_display.style.format({
                         "履約價": lambda v: f"{v:,.1f}" if v != "" else "",
                         "成交價": "{:,.2f}",
-                        "口數": "{:d}",
+                        "口數": lambda v: f"{int(v)}" if v > 1 else "",
                         "結算損益": "{:,.0f}" # 單位是金額
                     }).applymap(color_detail_profit, subset=["結算損益"])
 
@@ -776,15 +865,6 @@ if not positions_df.empty:
 
                     st.dataframe(styled_detail, use_container_width=True)
         else:
-            st.info("目前沒有倉位可以計算明細損益。")
-    else:
-        st.markdown("<div class='small-muted' style='margin-top:8px'>尚未設定目標結算價，請新增結算價以查看損益。</div>", unsafe_allow_html=True)
+            st.info("目前無倉位，僅顯示補償值。")
 
     st.markdown("</div>", unsafe_allow_html=True)
-    
-    
-    # ==========================================================
-    # ❌ 刪除 Black-Scholes 估值區塊 (應用戶要求)
-    # ==========================================================
-    
-    pass
