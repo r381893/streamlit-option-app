@@ -202,8 +202,9 @@ def black_scholes_model(S, K, T, r, sigma, option_type):
     
     return price
 
-# ======== 載入與儲存函式 (維持不變) ========
+# ======== 載入與儲存函式 (修正邏輯，不儲存/不載入 center_price) ========
 def load_positions(fname=POSITIONS_FILE):
+    # 此函式被修改，當讀取到 center_price 時，會忽略它，始終返回 None 作為 loaded_center
     if os.path.exists(fname):
         try:
             with open(fname, "r", encoding="utf-8") as f:
@@ -211,10 +212,10 @@ def load_positions(fname=POSITIONS_FILE):
             
             if isinstance(data, list):
                 df = pd.DataFrame(data)
-                loaded_center = None
+                loaded_center = None # 舊格式或列表格式，忽略中心價
             elif isinstance(data, dict) and "positions" in data:
                 df = pd.DataFrame(data["positions"])
-                loaded_center = data.get("center_price")
+                loaded_center = None # <--- 修正: 即使檔案中存在 center_price，我們也忽略它，確保使用最新大盤指數
             else:
                 st.error("讀取儲存檔格式錯誤。", icon="❌")
                 return None, None
@@ -242,11 +243,12 @@ def load_positions(fname=POSITIONS_FILE):
             return None, None
     return None, None
 
-def save_positions(df, center_price, fname=POSITIONS_FILE):
+def save_positions(df, center_price_to_ignore, fname=POSITIONS_FILE):
+    # 此函式被修改，不再將中心價寫入檔案
     try:
         data = {
-            "center_price": center_price,
             "positions": df.to_dict(orient="records")
+            # 刪除 "center_price" 的寫入
         }
         with open(fname, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
@@ -279,6 +281,7 @@ if st.session_state.tse_index_price is None:
         st.session_state.tse_index_price = 10000.0
         st.sidebar.info("🌐 無法獲取即時指數，使用備用中心價 10,000.0。", icon="ℹ️")
 
+# 始終使用最新的大盤指數作為預設中心價，除非 session_state 中已經有值
 if st.session_state.center_price is None:
     st.session_state.center_price = st.session_state.tse_index_price
         
@@ -286,7 +289,7 @@ if st.session_state.center_price is None:
 ## 🗃️ 倉位管理與檔案操作
 # ---
 
-# ======== 檔案操作區 (維持不變) ========
+# ======== 檔案操作區 (修正儲存/載入邏輯) ========
 with st.container():
     st.markdown("<div class='card'>", unsafe_allow_html=True)
     st.markdown('<div class="section-title">📂 檔案操作與清理</div>', unsafe_allow_html=True)
@@ -296,23 +299,22 @@ with st.container():
             df, loaded_center = load_positions()
             if df is not None:
                 st.session_state.positions = df
-                if loaded_center is not None:
-                    st.session_state.center_price = loaded_center
-                    st.success(f"✅ 已從檔案載入倉位及中心價 {loaded_center:,.1f}")
-                else:
-                    st.success("✅ 已從檔案載入倉位，中心價使用預設值")
+                # loaded_center 會是 None，不會覆蓋最新的大盤指數
+                st.success(f"✅ 已從檔案載入倉位，中心價使用最新大盤指數")
             else:
                 st.info("找不到儲存檔或檔案為空。")
     with col2:
         if st.button("💾 儲存倉位", use_container_width=True):
             if not st.session_state.positions.empty:
+                # 即使這裡傳入 center，save_positions 也不會將其寫入檔案
                 current_center = st.session_state.get("simulation_center_price_input")
                 center_to_save = current_center if current_center is not None else st.session_state.center_price
                 
-                ok = save_positions(st.session_state.positions, center_to_save)
+                ok = save_positions(st.session_state.positions, center_to_save) # center_to_save 將被忽略
                 if ok:
-                    st.session_state.center_price = center_to_save
-                    st.success(f"✅ 已儲存到 {POSITIONS_FILE}，中心價 {center_to_save:,.1f} 已記錄")
+                    # 關鍵修正: 移除這行，不覆蓋 st.session_state.center_price
+                    # st.session_state.center_price = center_to_save
+                    st.success(f"✅ 已儲存到 {POSITIONS_FILE}，中心價將保持為最新大盤指數。")
                 else:
                     st.info("目前沒有倉位可儲存。")
     with col3:
@@ -322,6 +324,7 @@ with st.container():
             ])
             st.session_state._edit_index = -1
             st.session_state.target_prices = []
+            # 清空後，將中心價重設為最新的大盤指數
             st.session_state.center_price = st.session_state.tse_index_price
             st.success("已清空所有倉位與狀態。")
     st.markdown("</div>", unsafe_allow_html=True)
@@ -536,6 +539,7 @@ if not positions_df.empty:
     st.sidebar.markdown('## 🛠️ 損益模擬設定')
     center = st.sidebar.number_input(
         "價平中心價 (Center)",
+        # 這裡從 session_state.center_price 獲取，該值在啟動時會被最新的大盤指數初始化
         value=st.session_state.center_price,
         key="simulation_center_price_input",
         step=1.0,
@@ -783,7 +787,4 @@ if not positions_df.empty:
     # ❌ 刪除 Black-Scholes 估值區塊 (應用戶要求)
     # ==========================================================
     
-    # 刪除原有的 '選擇權估值與理論平倉損益分析' 區塊
-    # if options_df: ... else: ... (此處被刪除)
-    
-    pass # 結束整個 if not positions_df.empty 區塊的邏輯
+    pass
